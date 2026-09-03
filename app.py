@@ -2,6 +2,7 @@ import csv
 import io
 import os
 import textwrap
+import uuid
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -19,6 +20,7 @@ from flask import (
     render_template,
     request,
     send_file,
+    session,
     url_for,
 )
 from flask_limiter import Limiter
@@ -153,6 +155,67 @@ def print_receipt_to_printer(sale):
         win32print.ClosePrinter(printer)
 
 
+def print_combined_receipt_to_printer(sales):
+    if not sales:
+        raise RuntimeError("There are no items on this receipt.")
+    if win32print is None:
+        raise RuntimeError("Direct printing requires the pywin32 package.")
+
+    line_width = 42
+
+    def centered(value):
+        return str(value).center(line_width)
+
+    def row(label, value):
+        value = str(value)
+        available = max(1, line_width - len(label) - 1)
+        return "{}{}".format(label.ljust(line_width - min(len(value), available)), value[-available:])
+
+    first_sale = sales[0]
+    lines = [
+        centered(BUSINESS_NAME),
+        centered("Official Sales Receipt"),
+        centered(BUSINESS_ADDRESS),
+        centered(" | ".join(value for value in [BUSINESS_PHONE, BUSINESS_EMAIL, BUSINESS_WEBSITE] if value)),
+        row("Receipt / Invoice #", first_sale.id),
+        row("Date", format_business_datetime(first_sale.timestamp)),
+        row("Cashier", first_sale.cashier_name or "POS operator"),
+        row("Register", first_sale.register_number),
+        row("Customer", first_sale.customer_name or "Walk-in customer"),
+        "-" * line_width,
+    ]
+    for sale in sales:
+        lines.append(row(sale.product_name, "{} x KES {:.2f}".format(sale.quantity, sale.price)))
+        if sale.product_sku:
+            lines.append("  {}".format(sale.product_sku))
+    total = sum(sale.total_price for sale in sales)
+    amount_tendered = first_sale.amount_tendered
+    lines.extend([
+        "-" * line_width,
+        row("Grand Total", "KES {:.2f}".format(total)),
+        row("Payment Method", first_sale.payment_method),
+    ])
+    if amount_tendered is not None:
+        lines.extend([
+            row("Amount Tendered", "KES {:.2f}".format(amount_tendered)),
+            row("Change", "KES {:.2f}".format(first_sale.change_amount or 0)),
+        ])
+    lines.extend(["", *[centered(line) for line in textwrap.wrap(RETURN_POLICY, width=line_width) or [""]], centered("Thank you for shopping with us."), "", ""])
+
+    printer = win32print.OpenPrinter(PRINTER_NAME)
+    try:
+        win32print.StartDocPrinter(printer, 1, ("Receipt #{}".format(first_sale.id), None, "RAW"))
+        try:
+            win32print.StartPagePrinter(printer)
+            data = ("\x1b@" + "\n".join(lines) + "\x1dV\x42\x06").encode("cp437", errors="replace")
+            win32print.WritePrinter(printer, data)
+            win32print.EndPagePrinter(printer)
+        finally:
+            win32print.EndDocPrinter(printer)
+    finally:
+        win32print.ClosePrinter(printer)
+
+
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
@@ -214,6 +277,7 @@ class Sale(db.Model):
     change_amount = db.Column(db.Float, nullable=True)
     cashier_name = db.Column(db.String(50), nullable=True)
     register_number = db.Column(db.String(50), nullable=False, default="Till 1")
+    receipt_token = db.Column(db.String(36), nullable=True, index=True)
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     @property
@@ -250,6 +314,19 @@ class QuickSaleForm(FlaskForm):
     payment_method = SelectField("Payment Method", choices=[("Cash", "Cash"), ("M-Pesa", "M-Pesa"), ("Card", "Credit/Debit Card")], validators=[DataRequired()])
     amount_tendered = DecimalField("Amount Tendered", validators=[Optional(), NumberRange(min=0)])
     submit = SubmitField("Sell")
+
+
+class CartAddForm(FlaskForm):
+    product_id = SelectField("Product", coerce=int, validators=[DataRequired()])
+    quantity = IntegerField("Quantity", validators=[DataRequired(), NumberRange(min=1)])
+    submit = SubmitField("Add to cart")
+
+
+class CartCheckoutForm(FlaskForm):
+    customer_name = StringField("Customer Name", validators=[Optional(), Length(max=120)])
+    payment_method = SelectField("Payment Method", choices=[("Cash", "Cash"), ("M-Pesa", "M-Pesa"), ("Card", "Credit/Debit Card")], validators=[DataRequired()])
+    amount_tendered = DecimalField("Amount Tendered", validators=[Optional(), NumberRange(min=0)])
+    submit = SubmitField("Complete Sale")
 
 
 class SupplierForm(FlaskForm):
@@ -345,6 +422,7 @@ def ensure_sale_schema():
         "change_amount": "FLOAT",
         "cashier_name": "VARCHAR(50)",
         "register_number": "VARCHAR(50) NOT NULL DEFAULT 'Till 1'",
+        "receipt_token": "VARCHAR(36)",
     }
     for column_name, column_definition in new_columns.items():
         if column_name not in columns:
@@ -494,6 +572,108 @@ def quick_sell():
     return redirect(url_for("home"))
 
 
+def product_choices():
+    return [(product.id, f"{product.name} - {product.brand} ({product.stock} in stock)") for product in Product.query.order_by(Product.name.asc()).all()]
+
+
+def get_cart_items():
+    cart = session.get("cart", {})
+    items = []
+    for product_id, quantity in cart.items():
+        product = db.session.get(Product, int(product_id))
+        if product and quantity > 0:
+            items.append({"product": product, "quantity": int(quantity), "total": product.price * int(quantity)})
+    return items
+
+
+@app.route("/cart/add", methods=["POST"])
+@login_required
+def add_to_cart():
+    form = CartAddForm()
+    form.product_id.choices = product_choices()
+    if form.validate_on_submit():
+        product = db.session.get(Product, form.product_id.data)
+        if not product:
+            flash("Selected product was not found.", "danger")
+        elif product.stock < form.quantity.data:
+            flash(f"Not enough stock for {product.name}. Available: {product.stock}", "danger")
+        else:
+            cart = session.get("cart", {})
+            key = str(product.id)
+            new_quantity = int(cart.get(key, 0)) + form.quantity.data
+            if new_quantity > product.stock:
+                flash(f"Cart quantity for {product.name} cannot exceed stock ({product.stock}).", "danger")
+            else:
+                cart[key] = new_quantity
+                session["cart"] = cart
+                flash(f"Added {form.quantity.data} {product.name} to the cart.", "success")
+    else:
+        flash("Choose a product and enter a valid quantity.", "danger")
+    return redirect(url_for("cart"))
+
+
+@app.route("/cart")
+@login_required
+def cart():
+    add_form = CartAddForm()
+    add_form.product_id.choices = product_choices()
+    checkout_form = CartCheckoutForm()
+    items = get_cart_items()
+    return render_template("cart.html", add_form=add_form, checkout_form=checkout_form, items=items, cart_total=sum(item["total"] for item in items))
+
+
+@app.route("/cart/remove/<int:product_id>", methods=["POST"])
+@login_required
+def remove_from_cart(product_id):
+    cart = session.get("cart", {})
+    cart.pop(str(product_id), None)
+    session["cart"] = cart
+    return redirect(url_for("cart"))
+
+
+@app.route("/cart/checkout", methods=["POST"])
+@login_required
+def checkout_cart():
+    form = CartCheckoutForm()
+    items = get_cart_items()
+    if not items:
+        flash("Add at least one product before completing a sale.", "danger")
+        return redirect(url_for("cart"))
+    if not form.validate_on_submit():
+        flash("Please check the checkout details.", "danger")
+        return redirect(url_for("cart"))
+    for item in items:
+        if item["product"].stock < item["quantity"]:
+            flash(f"Not enough stock for {item['product'].name}. Available: {item['product'].stock}", "danger")
+            return redirect(url_for("cart"))
+
+    customer_name = form.customer_name.data.strip() if form.customer_name.data else "Walk-in customer"
+    customer = None
+    if customer_name != "Walk-in customer":
+        customer = Customer.query.filter(db.func.lower(Customer.name) == customer_name.lower()).first()
+        if not customer:
+            customer = Customer(name=customer_name)
+            db.session.add(customer)
+            db.session.flush()
+
+    receipt_token = str(uuid.uuid4())
+    amount_tendered = float(form.amount_tendered.data) if form.amount_tendered.data is not None else None
+    sales = []
+    for index, item in enumerate(items):
+        sales.append(create_sale_record(
+            item["product"],
+            item["quantity"],
+            customer=customer,
+            customer_name=customer_name,
+            payment_method=form.payment_method.data,
+            amount_tendered=amount_tendered if index == 0 else None,
+            receipt_token=receipt_token,
+        ))
+    session.pop("cart", None)
+    flash(f"Sold {len(sales)} product(s) successfully.", "success")
+    return redirect(url_for("combined_receipt", receipt_token=receipt_token))
+
+
 @app.route("/sell/<int:product_id>", methods=["POST"])
 @login_required
 def sell_product(product_id):
@@ -526,6 +706,7 @@ def create_sale_record(
     customer_name="Walk-in customer",
     payment_method="Cash",
     amount_tendered=None,
+    receipt_token=None,
 ):
     product.stock -= quantity
     total = product.price * quantity
@@ -544,6 +725,7 @@ def create_sale_record(
         change_amount=amount_tendered - total if amount_tendered is not None else None,
         cashier_name=current_user.username if current_user.is_authenticated else None,
         register_number=REGISTER_NUMBER,
+        receipt_token=receipt_token,
         timestamp=datetime.utcnow(),
     )
     db.session.add(sale)
@@ -741,6 +923,29 @@ def print_receipt(sale_id):
     except Exception as error:
         flash("Receipt could not be printed: {}".format(error), "danger")
     return redirect(url_for("receipt", sale_id=sale.id))
+
+
+@app.route("/receipt/batch/<receipt_token>")
+@login_required
+def combined_receipt(receipt_token):
+    sales = Sale.query.filter_by(receipt_token=receipt_token).order_by(Sale.id.asc()).all()
+    if not sales:
+        return "Receipt not found", 404
+    return render_template("receipt.html", sales=sales, sale=sales[0], combined=True)
+
+
+@app.route("/receipt/batch/<receipt_token>/print", methods=["POST"])
+@login_required
+def print_combined_receipt(receipt_token):
+    sales = Sale.query.filter_by(receipt_token=receipt_token).order_by(Sale.id.asc()).all()
+    if not sales:
+        return "Receipt not found", 404
+    try:
+        print_combined_receipt_to_printer(sales)
+        flash("Receipt sent to the printer.", "success")
+    except Exception as error:
+        flash("Receipt could not be printed: {}".format(error), "danger")
+    return redirect(url_for("combined_receipt", receipt_token=receipt_token))
 
 
 @app.route("/export/inventory")

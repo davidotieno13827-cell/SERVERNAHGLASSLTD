@@ -87,6 +87,44 @@ class BusinessFeatureTests(unittest.TestCase):
         self.assertIn("/receipt/2", response.headers["Location"])
         self.assertNotIn("auto_print", response.headers["Location"])
 
+    def test_cart_checkout_creates_one_combined_receipt(self):
+        with app.app_context():
+            second_product = Product(
+                sku="GL-002",
+                name="Window Handle",
+                brand="ClearView",
+                buying_price=100.0,
+                price=250.0,
+                stock=4,
+            )
+            db.session.add(second_product)
+            db.session.commit()
+            second_product_id = second_product.id
+
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        first = client.post("/cart/add", data={"product_id": "1", "quantity": "2"})
+        second = client.post("/cart/add", data={"product_id": str(second_product_id), "quantity": "1"})
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        response = client.post(
+            "/cart/checkout",
+            data={"customer_name": "", "payment_method": "Cash", "amount_tendered": "2000"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/receipt/batch/", response.headers["Location"])
+        receipt = client.get(response.headers["Location"])
+        self.assertEqual(receipt.status_code, 200)
+        self.assertIn(b"Tempered Glass", receipt.data)
+        self.assertIn(b"Window Handle", receipt.data)
+        with app.app_context():
+            self.assertEqual(Sale.query.count(), 3)
+            self.assertEqual(Product.query.get(1).stock, 8)
+            self.assertEqual(Product.query.get(second_product_id).stock, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

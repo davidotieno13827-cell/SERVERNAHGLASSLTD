@@ -12,6 +12,13 @@ A lightweight Flask-based point-of-sale system for a glass and hardware retail s
 - Inventory exports
 - Low-stock alerts
 
+## Multi-product sale
+
+1. Open **Multi-product Sale** from the POS navigation or click **Choose Multiple Products** on the home screen.
+2. Select a product, enter its quantity, and click **Add to cart**. Repeat for each product.
+3. Review the cart, enter the customer and payment details, then click **Complete Sale and View Receipt**.
+4. Click **Print Receipt** to print all products on one receipt.
+
 ## Quick start
 
 1. Create a virtual environment

@@ -42,17 +42,26 @@
                     <span>Item / SKU</span>
                     <span>Qty x Unit Price</span>
                 </div>
-                <div class="d-flex justify-content-between mt-2">
-                    <span>{{ sale.product_name }}{% if sale.product_sku %}<br><small>{{ sale.product_sku }}</small>{% endif %}</span>
-                    <span class="text-end">{{ sale.quantity }} x KES {{ '%.2f'|format(sale.price) }}<br>KES {{ '%.2f'|format(sale.total_price) }}</span>
-                </div>
+                {% if combined %}
+                    {% for receipt_sale in sales %}
+                    <div class="d-flex justify-content-between mt-2">
+                        <span>{{ receipt_sale.product_name }}{% if receipt_sale.product_sku %}<br><small>{{ receipt_sale.product_sku }}</small>{% endif %}</span>
+                        <span class="text-end">{{ receipt_sale.quantity }} x KES {{ '%.2f'|format(receipt_sale.price) }}<br>KES {{ '%.2f'|format(receipt_sale.total_price) }}</span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="d-flex justify-content-between mt-2">
+                        <span>{{ sale.product_name }}{% if sale.product_sku %}<br><small>{{ sale.product_sku }}</small>{% endif %}</span>
+                        <span class="text-end">{{ sale.quantity }} x KES {{ '%.2f'|format(sale.price) }}<br>KES {{ '%.2f'|format(sale.total_price) }}</span>
+                    </div>
+                {% endif %}
                 <div class="d-flex justify-content-between mt-2">
                     <span>Subtotal</span>
-                    <span>KES {{ '%.2f'|format(sale.total_price + sale.discount_amount) }}</span>
+                    <span>KES {{ '%.2f'|format((sales|sum(attribute='total_price') if combined else sale.total_price) + sale.discount_amount) }}</span>
                 </div>
                 <div class="d-flex justify-content-between mt-2 fs-5">
                     <strong>Grand Total</strong>
-                    <strong>KES {{ '%.2f'|format(sale.total_price) }}</strong>
+                    <strong>KES {{ '%.2f'|format(sales|sum(attribute='total_price') if combined else sale.total_price) }}</strong>
                 </div>
                 <hr>
                 <div class="d-flex justify-content-between">
@@ -75,7 +84,7 @@
                     <div class="mt-2">Thank you for shopping with us.</div>
                 </div>
                 <div class="receipt-actions d-flex justify-content-center gap-2 mt-4">
-                    <form method="POST" action="{{ url_for('print_receipt', sale_id=sale.id) }}">
+                    <form method="POST" action="{{ url_for('print_combined_receipt', receipt_token=sale.receipt_token) if combined else url_for('print_receipt', sale_id=sale.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="btn btn-primary" type="submit">Print Receipt</button>
                     </form>
