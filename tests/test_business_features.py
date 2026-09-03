@@ -73,7 +73,7 @@ class BusinessFeatureTests(unittest.TestCase):
         self.assertNotIn(b"cdn.jsdelivr.net", response.data)
         self.assertIn(b"/static/bootstrap.min.css", response.data)
 
-    def test_quick_sale_opens_its_receipt(self):
+    def test_quick_sale_opens_receipt_without_printing(self):
         client = app.test_client()
         with client.session_transaction() as session:
             session["_user_id"] = "1"
@@ -84,7 +84,8 @@ class BusinessFeatureTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(response.status_code, 302)
-        self.assertIn("/receipt/2?auto_print=1", response.headers["Location"])
+        self.assertIn("/receipt/2", response.headers["Location"])
+        self.assertNotIn("auto_print", response.headers["Location"])
 
 
 if __name__ == "__main__":

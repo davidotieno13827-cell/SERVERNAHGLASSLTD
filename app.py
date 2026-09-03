@@ -105,8 +105,11 @@ def print_receipt_to_printer(sale):
         "Register: {}".format(sale.register_number),
         "Customer: {}".format(sale.customer_name or "Walk-in customer"),
         "-" * 32,
+        "Item / SKU",
         sale.product_name,
-        "{} x KES {:.2f}".format(sale.quantity, sale.price),
+        "SKU: {}".format(sale.product_sku or "-"),
+        "Qty x Unit Price: {} x KES {:.2f}".format(sale.quantity, sale.price),
+        "Item Total: KES {:.2f}".format(sale.total_price),
         "Subtotal: KES {:.2f}".format(sale.total_price + sale.discount_amount),
         "TOTAL: KES {:.2f}".format(sale.total_price),
         "Payment: {}".format(sale.payment_method),
@@ -465,7 +468,7 @@ def quick_sell():
             amount_tendered=float(form.amount_tendered.data) if form.amount_tendered.data is not None else None,
         )
         flash(f"Sold {qty} {product.name} successfully.", "success")
-        return redirect(url_for("receipt", sale_id=sale.id, auto_print=1))
+        return redirect(url_for("receipt", sale_id=sale.id))
 
     for field, errors in form.errors.items():
         for error in errors:
@@ -495,7 +498,7 @@ def sell_product(product_id):
 
     sale = create_sale_record(product, qty, customer=customer, customer_name=customer_name)
     flash(f"Sold {qty} unit(s) of {product.name}.", "success")
-    return redirect(url_for("receipt", sale_id=sale.id, auto_print=1))
+    return redirect(url_for("receipt", sale_id=sale.id))
 
 
 def create_sale_record(
@@ -707,14 +710,7 @@ def sales_summary():
 @login_required
 def receipt(sale_id):
     sale = Sale.query.get_or_404(sale_id)
-    auto_print = request.args.get("auto_print", "0") == "1"
-    print_error = None
-    if auto_print:
-        try:
-            print_receipt_to_printer(sale)
-        except Exception as error:
-            print_error = str(error)
-    return render_template("receipt.html", sale=sale, auto_print=auto_print, print_error=print_error)
+    return render_template("receipt.html", sale=sale)
 
 
 @app.route("/receipt/<int:sale_id>/print", methods=["POST"])
