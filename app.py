@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import textwrap
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -105,6 +106,9 @@ def print_receipt_to_printer(sale):
         available = max(1, line_width - len(label) - 1)
         return "{}{}".format(label.ljust(line_width - min(len(value), available)), value[-available:])
 
+    def centered_lines(value):
+        return [centered(line) for line in textwrap.wrap(str(value), width=line_width) or [""]]
+
     contact = " | ".join(value for value in [BUSINESS_PHONE, BUSINESS_EMAIL, BUSINESS_WEBSITE] if value)
     lines = [
         centered(BUSINESS_NAME),
@@ -133,7 +137,7 @@ def print_receipt_to_printer(sale):
             row("Amount Tendered", "KES {:.2f}".format(sale.amount_tendered)),
             row("Change", "KES {:.2f}".format(sale.change_amount or 0)),
         ])
-    lines.extend(["", centered(RETURN_POLICY), centered("Thank you for shopping with us."), "", ""])
+    lines.extend(["", *centered_lines(RETURN_POLICY), centered("Thank you for shopping with us."), "", "", ""])
 
     printer = win32print.OpenPrinter(PRINTER_NAME)
     try:
