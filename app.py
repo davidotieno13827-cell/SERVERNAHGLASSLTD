@@ -137,14 +137,14 @@ def print_receipt_to_printer(sale):
             row("Amount Tendered", "KES {:.2f}".format(sale.amount_tendered)),
             row("Change", "KES {:.2f}".format(sale.change_amount or 0)),
         ])
-    lines.extend(["", *centered_lines(RETURN_POLICY), centered("Thank you for shopping with us."), "", "", ""])
+    lines.extend(["", *centered_lines(RETURN_POLICY), centered("Thank you for shopping with us."), "", ""])
 
     printer = win32print.OpenPrinter(PRINTER_NAME)
     try:
         win32print.StartDocPrinter(printer, 1, ("Receipt #{}".format(sale.id), None, "RAW"))
         try:
             win32print.StartPagePrinter(printer)
-            data = ("\x1b@" + "\n".join(lines) + "\n\x1dV\x00").encode("cp437", errors="replace")
+            data = ("\x1b@" + "\n".join(lines) + "\x1dV\x42\x06").encode("cp437", errors="replace")
             win32print.WritePrinter(printer, data)
             win32print.EndPagePrinter(printer)
         finally:
