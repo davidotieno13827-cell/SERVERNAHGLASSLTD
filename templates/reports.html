@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1">Business Reports</h2>
+        <p class="text-muted mb-0">Track stock value, margin, and landed costs.</p>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="stat-card"><span>Inventory Value</span><strong>KES {{ '%.2f'|format(stats.inventory_value) }}</strong></div></div>
+    <div class="col-md-3"><div class="stat-card"><span>Total Revenue</span><strong>KES {{ '%.2f'|format(stats.total_revenue) }}</strong></div></div>
+    <div class="col-md-3"><div class="stat-card"><span>Total Cost</span><strong>KES {{ '%.2f'|format(stats.total_cost) }}</strong></div></div>
+    <div class="col-md-3"><div class="stat-card"><span>Gross Profit</span><strong>KES {{ '%.2f'|format(stats.gross_profit) }}</strong></div></div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body">
+                <h4 class="mb-3">Top Profit Potential</h4>
+                {% if top_profit_products %}
+                <table class="table table-striped mb-0">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Potential Profit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in top_profit_products %}
+                        <tr>
+                            <td>{{ item[0] }}</td>
+                            <td>KES {{ '%.2f'|format(item[1]) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted mb-0">No profit data yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body">
+                <h4 class="mb-3">Recent Sales</h4>
+                {% if recent_sales %}
+                <table class="table table-striped mb-0">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Qty</th>
+                            <th>Gross Profit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sale in recent_sales %}
+                        <tr>
+                            <td>{{ sale.product_name }}</td>
+                            <td>{{ sale.quantity }}</td>
+                            <td>KES {{ '%.2f'|format(sale.profit) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted mb-0">No sales have been recorded.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
