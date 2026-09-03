@@ -95,31 +95,45 @@ def print_receipt_to_printer(sale):
     if win32print is None:
         raise RuntimeError("Direct printing requires the pywin32 package.")
 
+    line_width = 42
+
+    def centered(value):
+        return value.center(line_width)
+
+    def row(label, value):
+        value = str(value)
+        available = max(1, line_width - len(label) - 1)
+        return "{}{}".format(label.ljust(line_width - min(len(value), available)), value[-available:])
+
+    contact = " | ".join(value for value in [BUSINESS_PHONE, BUSINESS_EMAIL, BUSINESS_WEBSITE] if value)
     lines = [
-        BUSINESS_NAME,
-        BUSINESS_ADDRESS,
-        BUSINESS_PHONE,
-        "Receipt / Invoice #: {}".format(sale.id),
-        "Date: {}".format(format_business_datetime(sale.timestamp)),
-        "Cashier: {}".format(sale.cashier_name or "POS operator"),
-        "Register: {}".format(sale.register_number),
-        "Customer: {}".format(sale.customer_name or "Walk-in customer"),
-        "-" * 32,
-        "Item / SKU",
-        sale.product_name,
-        "SKU: {}".format(sale.product_sku or "-"),
-        "Qty x Unit Price: {} x KES {:.2f}".format(sale.quantity, sale.price),
-        "Item Total: KES {:.2f}".format(sale.total_price),
-        "Subtotal: KES {:.2f}".format(sale.total_price + sale.discount_amount),
-        "TOTAL: KES {:.2f}".format(sale.total_price),
-        "Payment: {}".format(sale.payment_method),
+        centered(BUSINESS_NAME),
+        centered("Official Sales Receipt"),
+        centered(BUSINESS_ADDRESS),
+        centered(contact),
+        row("Receipt / Invoice #", sale.id),
+        row("Date", format_business_datetime(sale.timestamp)),
+        row("Cashier", sale.cashier_name or "POS operator"),
+        row("Register", sale.register_number),
+        row("Customer", sale.customer_name or "Walk-in customer"),
+        "-" * line_width,
+        row("Item / SKU", "Qty x Unit Price"),
+        row(sale.product_name, "{} x KES {:.2f}".format(sale.quantity, sale.price)),
     ]
+    if sale.product_sku:
+        lines.append(sale.product_sku)
+    lines.extend([
+        row("Subtotal", "KES {:.2f}".format(sale.total_price + sale.discount_amount)),
+        row("Grand Total", "KES {:.2f}".format(sale.total_price)),
+        "-" * line_width,
+        row("Payment Method", sale.payment_method),
+    ])
     if sale.amount_tendered is not None:
         lines.extend([
-            "Tendered: KES {:.2f}".format(sale.amount_tendered),
-            "Change: KES {:.2f}".format(sale.change_amount or 0),
+            row("Amount Tendered", "KES {:.2f}".format(sale.amount_tendered)),
+            row("Change", "KES {:.2f}".format(sale.change_amount or 0)),
         ])
-    lines.extend(["-" * 32, RETURN_POLICY, "Thank you for shopping with us.", "", ""])
+    lines.extend(["", centered(RETURN_POLICY), centered("Thank you for shopping with us."), "", ""])
 
     printer = win32print.OpenPrinter(PRINTER_NAME)
     try:
