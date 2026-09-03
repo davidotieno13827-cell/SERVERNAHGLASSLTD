@@ -19,6 +19,8 @@ A lightweight Flask-based point-of-sale system for a glass and hardware retail s
 3. Review the cart, enter the customer and payment details, then click **Complete Sale and View Receipt**.
 4. Click **Print Receipt** to print all products on one receipt.
 
+Stock is reduced only after the receipt is successfully sent to the printer. A pending or failed receipt does not reduce inventory.
+
 ## Quick start
 
 1. Create a virtual environment

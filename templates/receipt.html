@@ -36,6 +36,12 @@
                     <span>Customer</span>
                     <strong>{{ sale.customer_name or 'Walk-in customer' }}</strong>
                 </div>
+                <div class="mb-3 d-flex justify-content-between">
+                    <span>Receipt Status</span>
+                    <strong class="{% if not sale.receipt_printed %}text-warning{% else %}text-success{% endif %}">
+                        {{ 'Printed' if sale.receipt_printed else 'Pending print' }}
+                    </strong>
+                </div>
 
                 <hr>
                 <div class="d-flex justify-content-between fw-semibold">

@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
@@ -122,9 +123,36 @@ class BusinessFeatureTests(unittest.TestCase):
         self.assertIn(b"Window Handle", receipt.data)
         with app.app_context():
             self.assertEqual(Sale.query.count(), 3)
+            self.assertEqual(Product.query.get(1).stock, 10)
+            self.assertEqual(Product.query.get(second_product_id).stock, 4)
+            token = response.headers["Location"].rsplit("/", 1)[-1]
+            grouped_sales = Sale.query.filter_by(receipt_token=token).all()
+            self.assertEqual(grouped_sales[0].change_amount, 150.0)
+            self.assertFalse(grouped_sales[0].receipt_printed)
+        with patch("app.print_combined_receipt_to_printer"):
+            printed = client.post(f"/receipt/batch/{token}/print", follow_redirects=False)
+        self.assertEqual(printed.status_code, 302)
+        with app.app_context():
             self.assertEqual(Product.query.get(1).stock, 8)
             self.assertEqual(Product.query.get(second_product_id).stock, 3)
-            self.assertEqual(Sale.query.filter_by(receipt_token=response.headers["Location"].rsplit("/", 1)[-1]).first().change_amount, 150.0)
+            self.assertTrue(all(sale.receipt_printed for sale in Sale.query.filter_by(receipt_token=token).all()))
+
+    def test_failed_print_does_not_reduce_stock(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        response = client.post("/quick_sell", data={"product_id": "1", "customer_name": "", "quantity": "1", "payment_method": "Cash"})
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            self.assertEqual(Product.query.get(1).stock, 10)
+            sale_id = Sale.query.order_by(Sale.id.desc()).first().id
+        with patch("app.print_receipt_to_printer", side_effect=RuntimeError("printer unavailable")):
+            printed = client.post(f"/receipt/{sale_id}/print", follow_redirects=False)
+        self.assertEqual(printed.status_code, 302)
+        with app.app_context():
+            self.assertEqual(Product.query.get(1).stock, 10)
+            self.assertFalse(db.session.get(Sale, sale_id).receipt_printed)
 
     def test_cart_checkout_rejects_insufficient_cash(self):
         client = app.test_client()

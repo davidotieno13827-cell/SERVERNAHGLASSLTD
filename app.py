@@ -278,6 +278,7 @@ class Sale(db.Model):
     cashier_name = db.Column(db.String(50), nullable=True)
     register_number = db.Column(db.String(50), nullable=False, default="Till 1")
     receipt_token = db.Column(db.String(36), nullable=True, index=True)
+    receipt_printed = db.Column(db.Boolean, nullable=False, default=False)
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     @property
@@ -423,6 +424,7 @@ def ensure_sale_schema():
         "cashier_name": "VARCHAR(50)",
         "register_number": "VARCHAR(50) NOT NULL DEFAULT 'Till 1'",
         "receipt_token": "VARCHAR(36)",
+        "receipt_printed": "BOOLEAN NOT NULL DEFAULT 1",
     }
     for column_name, column_definition in new_columns.items():
         if column_name not in columns:
@@ -715,7 +717,6 @@ def create_sale_record(
     change_total=None,
     receipt_token=None,
 ):
-    product.stock -= quantity
     total = product.price * quantity
     sale = Sale(
         product_id=product.id,
@@ -738,6 +739,27 @@ def create_sale_record(
     db.session.add(sale)
     db.session.commit()
     return sale
+
+
+def finalize_printed_sales(sales):
+    for sale in sales:
+        if sale.receipt_printed:
+            continue
+        product = db.session.get(Product, sale.product_id)
+        if not product or product.stock < sale.quantity:
+            raise RuntimeError(f"Not enough stock to finalize {sale.product_name}.")
+        product.stock -= sale.quantity
+        sale.receipt_printed = True
+    db.session.commit()
+
+
+def validate_printable_sales(sales):
+    for sale in sales:
+        if sale.receipt_printed:
+            continue
+        product = db.session.get(Product, sale.product_id)
+        if not product or product.stock < sale.quantity:
+            raise RuntimeError(f"Not enough stock to print {sale.product_name}.")
 
 
 @app.route("/add", methods=["GET", "POST"])
@@ -925,7 +947,9 @@ def receipt(sale_id):
 def print_receipt(sale_id):
     sale = Sale.query.get_or_404(sale_id)
     try:
+        validate_printable_sales([sale])
         print_receipt_to_printer(sale)
+        finalize_printed_sales([sale])
         flash("Receipt sent to the printer.", "success")
     except Exception as error:
         flash("Receipt could not be printed: {}".format(error), "danger")
@@ -948,7 +972,9 @@ def print_combined_receipt(receipt_token):
     if not sales:
         return "Receipt not found", 404
     try:
+        validate_printable_sales(sales)
         print_combined_receipt_to_printer(sales)
+        finalize_printed_sales(sales)
         flash("Receipt sent to the printer.", "success")
     except Exception as error:
         flash("Receipt could not be printed: {}".format(error), "danger")
