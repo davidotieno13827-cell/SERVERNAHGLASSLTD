@@ -126,6 +126,23 @@ class BusinessFeatureTests(unittest.TestCase):
             self.assertEqual(Product.query.get(second_product_id).stock, 3)
             self.assertEqual(Sale.query.filter_by(receipt_token=response.headers["Location"].rsplit("/", 1)[-1]).first().change_amount, 150.0)
 
+    def test_cart_checkout_rejects_insufficient_cash(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        client.post("/cart/add", data={"product_id": "1", "quantity": "1"})
+        response = client.post(
+            "/cart/checkout",
+            data={"customer_name": "", "payment_method": "Cash", "amount_tendered": "700"},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Please top up KES 100.00", response.data)
+        with app.app_context():
+            self.assertEqual(Sale.query.count(), 1)
+            self.assertEqual(Product.query.get(1).stock, 10)
+
 
 if __name__ == "__main__":
     unittest.main()

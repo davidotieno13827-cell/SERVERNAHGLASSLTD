@@ -77,8 +77,9 @@
                     <div class="mb-3">
                         {{ checkout_form.amount_tendered.label(class='form-label') }}
                         {{ checkout_form.amount_tendered(class='form-control', min=0, step='0.01') }}
+                        <div id="paymentWarning" class="alert alert-warning mt-2 mb-0 d-none" role="alert"></div>
                     </div>
-                    <button class="btn btn-success w-100" type="submit">Complete Sale and View Receipt</button>
+                    <button id="checkoutButton" class="btn btn-success w-100" type="submit">Complete Sale and View Receipt</button>
                 </form>
                 {% else %}
                 <p class="text-muted mb-0">Your cart is empty. Add products to begin.</p>
@@ -87,4 +88,29 @@
         </div>
     </div>
 </div>
+<script>
+    const total = {{ '%.2f'|format(cart_total) }};
+    const amountInput = document.getElementById('amount_tendered');
+    const paymentMethod = document.getElementById('payment_method');
+    const warning = document.getElementById('paymentWarning');
+    const checkoutButton = document.getElementById('checkoutButton');
+
+    function updatePaymentWarning() {
+        const amount = Number.parseFloat(amountInput.value);
+        const isCash = paymentMethod.value === 'Cash';
+        const isUnderpaid = isCash && Number.isFinite(amount) && amount < total;
+        if (isUnderpaid) {
+            const shortfall = (total - amount).toFixed(2);
+            warning.textContent = `Amount tendered is KES ${amount.toFixed(2)}, but the total is KES ${total.toFixed(2)}. Please top up KES ${shortfall}.`;
+            warning.classList.remove('d-none');
+            checkoutButton.disabled = true;
+        } else {
+            warning.classList.add('d-none');
+            checkoutButton.disabled = false;
+        }
+    }
+
+    amountInput.addEventListener('input', updatePaymentWarning);
+    paymentMethod.addEventListener('change', updatePaymentWarning);
+</script>
 {% endblock %}

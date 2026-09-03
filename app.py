@@ -642,6 +642,12 @@ def checkout_cart():
     if not form.validate_on_submit():
         flash("Please check the checkout details.", "danger")
         return redirect(url_for("cart"))
+    cart_total = sum(item["total"] for item in items)
+    amount_tendered = float(form.amount_tendered.data) if form.amount_tendered.data is not None else None
+    if form.payment_method.data == "Cash" and amount_tendered is not None and amount_tendered < cart_total:
+        shortfall = cart_total - amount_tendered
+        flash(f"Amount tendered is KES {amount_tendered:.2f}, but the total is KES {cart_total:.2f}. Please top up KES {shortfall:.2f}.", "danger")
+        return redirect(url_for("cart"))
     for item in items:
         if item["product"].stock < item["quantity"]:
             flash(f"Not enough stock for {item['product'].name}. Available: {item['product'].stock}", "danger")
@@ -657,8 +663,6 @@ def checkout_cart():
             db.session.flush()
 
     receipt_token = str(uuid.uuid4())
-    amount_tendered = float(form.amount_tendered.data) if form.amount_tendered.data is not None else None
-    cart_total = sum(item["total"] for item in items)
     sales = []
     for index, item in enumerate(items):
         sales.append(create_sale_record(
