@@ -5,3 +5,4 @@ Flask-WTF==1.2.1
 Flask-Limiter==3.1.0
 WTForms==3.1.1
 python-dotenv==1.0.1
+pywin32==311

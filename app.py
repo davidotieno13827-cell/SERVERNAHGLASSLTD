@@ -3,6 +3,11 @@ import io
 import os
 from datetime import datetime, timedelta, timezone
 
+try:
+    import win32print
+except ImportError:
+    win32print = None
+
 from dotenv import load_dotenv
 from sqlalchemy import text
 from flask import (
@@ -50,6 +55,7 @@ BUSINESS_WEBSITE = os.getenv("BUSINESS_WEBSITE", "")
 BUSINESS_TAX_ID = os.getenv("BUSINESS_TAX_ID", "")
 REGISTER_NUMBER = os.getenv("REGISTER_NUMBER", "Till 1")
 RETURN_POLICY = os.getenv("RETURN_POLICY", "Returns and exchanges accepted within 7 days with a valid receipt.")
+PRINTER_NAME = os.getenv("PRINTER_NAME", "Xprinter XP-80")
 
 csrf = CSRFProtect(app)
 db = SQLAlchemy(app)
@@ -83,6 +89,47 @@ def receipt_business_details():
         "business_tax_id": BUSINESS_TAX_ID,
         "return_policy": RETURN_POLICY,
     }
+
+
+def print_receipt_to_printer(sale):
+    if win32print is None:
+        raise RuntimeError("Direct printing requires the pywin32 package.")
+
+    lines = [
+        BUSINESS_NAME,
+        BUSINESS_ADDRESS,
+        BUSINESS_PHONE,
+        "Receipt / Invoice #: {}".format(sale.id),
+        "Date: {}".format(format_business_datetime(sale.timestamp)),
+        "Cashier: {}".format(sale.cashier_name or "POS operator"),
+        "Register: {}".format(sale.register_number),
+        "Customer: {}".format(sale.customer_name or "Walk-in customer"),
+        "-" * 32,
+        sale.product_name,
+        "{} x KES {:.2f}".format(sale.quantity, sale.price),
+        "Subtotal: KES {:.2f}".format(sale.total_price + sale.discount_amount),
+        "TOTAL: KES {:.2f}".format(sale.total_price),
+        "Payment: {}".format(sale.payment_method),
+    ]
+    if sale.amount_tendered is not None:
+        lines.extend([
+            "Tendered: KES {:.2f}".format(sale.amount_tendered),
+            "Change: KES {:.2f}".format(sale.change_amount or 0),
+        ])
+    lines.extend(["-" * 32, RETURN_POLICY, "Thank you for shopping with us.", "", ""])
+
+    printer = win32print.OpenPrinter(PRINTER_NAME)
+    try:
+        win32print.StartDocPrinter(printer, 1, ("Receipt #{}".format(sale.id), None, "RAW"))
+        try:
+            win32print.StartPagePrinter(printer)
+            data = ("\x1b@" + "\n".join(lines) + "\n\x1dV\x00").encode("cp437", errors="replace")
+            win32print.WritePrinter(printer, data)
+            win32print.EndPagePrinter(printer)
+        finally:
+            win32print.EndDocPrinter(printer)
+    finally:
+        win32print.ClosePrinter(printer)
 
 
 class User(db.Model, UserMixin):
@@ -661,7 +708,25 @@ def sales_summary():
 def receipt(sale_id):
     sale = Sale.query.get_or_404(sale_id)
     auto_print = request.args.get("auto_print", "0") == "1"
-    return render_template("receipt.html", sale=sale, auto_print=auto_print)
+    print_error = None
+    if auto_print:
+        try:
+            print_receipt_to_printer(sale)
+        except Exception as error:
+            print_error = str(error)
+    return render_template("receipt.html", sale=sale, auto_print=auto_print, print_error=print_error)
+
+
+@app.route("/receipt/<int:sale_id>/print", methods=["POST"])
+@login_required
+def print_receipt(sale_id):
+    sale = Sale.query.get_or_404(sale_id)
+    try:
+        print_receipt_to_printer(sale)
+        flash("Receipt sent to the printer.", "success")
+    except Exception as error:
+        flash("Receipt could not be printed: {}".format(error), "danger")
+    return redirect(url_for("receipt", sale_id=sale.id))
 
 
 @app.route("/export/inventory")

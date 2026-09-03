@@ -2,15 +2,6 @@
 {% block title %}Receipt{% endblock %}
 
 {% block content %}
-<script>
-window.addEventListener('load', function () {
-    if ({{ 'true' if auto_print else 'false' }}) {
-        setTimeout(function () {
-            window.print();
-        }, 250);
-    }
-});
-</script>
 <div class="row justify-content-center">
     <div class="col-lg-5">
         <div class="card shadow-sm border-0 rounded-4 receipt-card">
@@ -84,7 +75,10 @@ window.addEventListener('load', function () {
                     <div class="mt-2">Thank you for shopping with us.</div>
                 </div>
                 <div class="receipt-actions d-flex justify-content-center gap-2 mt-4">
-                    <button class="btn btn-primary" type="button" onclick="window.print()">Print Receipt</button>
+                    <form method="POST" action="{{ url_for('print_receipt', sale_id=sale.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-primary" type="submit">Print Receipt</button>
+                    </form>
                     <a class="btn btn-primary" href="{{ url_for('home') }}">Back to POS</a>
                 </div>
             </div>
