@@ -124,6 +124,7 @@ class BusinessFeatureTests(unittest.TestCase):
             self.assertEqual(Sale.query.count(), 3)
             self.assertEqual(Product.query.get(1).stock, 8)
             self.assertEqual(Product.query.get(second_product_id).stock, 3)
+            self.assertEqual(Sale.query.filter_by(receipt_token=response.headers["Location"].rsplit("/", 1)[-1]).first().change_amount, 150.0)
 
 
 if __name__ == "__main__":

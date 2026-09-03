@@ -658,6 +658,7 @@ def checkout_cart():
 
     receipt_token = str(uuid.uuid4())
     amount_tendered = float(form.amount_tendered.data) if form.amount_tendered.data is not None else None
+    cart_total = sum(item["total"] for item in items)
     sales = []
     for index, item in enumerate(items):
         sales.append(create_sale_record(
@@ -667,6 +668,7 @@ def checkout_cart():
             customer_name=customer_name,
             payment_method=form.payment_method.data,
             amount_tendered=amount_tendered if index == 0 else None,
+            change_total=cart_total if index == 0 else None,
             receipt_token=receipt_token,
         ))
     session.pop("cart", None)
@@ -706,6 +708,7 @@ def create_sale_record(
     customer_name="Walk-in customer",
     payment_method="Cash",
     amount_tendered=None,
+    change_total=None,
     receipt_token=None,
 ):
     product.stock -= quantity
@@ -722,7 +725,7 @@ def create_sale_record(
         customer_name=customer_name,
         payment_method=payment_method,
         amount_tendered=amount_tendered,
-        change_amount=amount_tendered - total if amount_tendered is not None else None,
+        change_amount=amount_tendered - (change_total if change_total is not None else total) if amount_tendered is not None else None,
         cashier_name=current_user.username if current_user.is_authenticated else None,
         register_number=REGISTER_NUMBER,
         receipt_token=receipt_token,
