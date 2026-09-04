@@ -205,6 +205,24 @@ class BusinessFeatureTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"This product will make a loss", response.data)
 
+    def test_duplicate_cart_checkout_does_not_create_duplicate_sales(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        client.get("/cart")
+        client.post("/cart/add", data={"product_id": "1", "quantity": "1"})
+        with client.session_transaction() as session:
+            checkout_key = session["checkout_key"]
+        checkout_data = {"checkout_key": checkout_key, "customer_name": "", "payment_method": "Cash", "amount_tendered": "1000"}
+        first = client.post("/cart/checkout", data=checkout_data, follow_redirects=False)
+        second = client.post("/cart/checkout", data=checkout_data, follow_redirects=True)
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 200)
+        with app.app_context():
+            self.assertEqual(Sale.query.count(), 2)
+            self.assertEqual(Product.query.get(1).reserved_stock, 1)
+
     def test_failed_print_does_not_reduce_stock(self):
         client = app.test_client()
         with client.session_transaction() as session:

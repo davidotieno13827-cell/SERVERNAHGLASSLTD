@@ -14,6 +14,7 @@ except ImportError:
 
 from dotenv import load_dotenv
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from flask import (
     Flask,
     Response,
@@ -31,7 +32,7 @@ from flask_login import LoginManager, UserMixin, current_user, login_required, l
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm, CSRFProtect
 from werkzeug.security import check_password_hash, generate_password_hash
-from wtforms import DecimalField, IntegerField, PasswordField, SelectField, StringField, SubmitField
+from wtforms import DecimalField, HiddenField, IntegerField, PasswordField, SelectField, StringField, SubmitField
 from wtforms.validators import DataRequired, Length, NumberRange, Optional
 
 load_dotenv()
@@ -159,7 +160,9 @@ def print_receipt_to_printer(sale):
         try:
             win32print.StartPagePrinter(printer)
             data = ("\x1b@" + "\n".join(lines) + "\x1dV\x42\x06").encode("cp437", errors="replace")
-            win32print.WritePrinter(printer, data)
+            bytes_written = win32print.WritePrinter(printer, data)
+            if bytes_written != len(data):
+                raise RuntimeError("The printer accepted only part of the receipt.")
             win32print.EndPagePrinter(printer)
         finally:
             win32print.EndDocPrinter(printer)
@@ -220,7 +223,9 @@ def print_combined_receipt_to_printer(sales):
         try:
             win32print.StartPagePrinter(printer)
             data = ("\x1b@" + "\n".join(lines) + "\x1dV\x42\x06").encode("cp437", errors="replace")
-            win32print.WritePrinter(printer, data)
+            bytes_written = win32print.WritePrinter(printer, data)
+            if bytes_written != len(data):
+                raise RuntimeError("The printer accepted only part of the receipt.")
             win32print.EndPagePrinter(printer)
         finally:
             win32print.EndDocPrinter(printer)
@@ -306,6 +311,13 @@ class Sale(db.Model):
         return self.total_price - (self.cost_price * self.quantity)
 
 
+class CheckoutRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    request_key = db.Column(db.String(36), nullable=False, unique=True)
+    receipt_token = db.Column(db.String(36), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
 class MetricSnapshot(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     captured_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
@@ -356,6 +368,7 @@ class CartAddForm(FlaskForm):
 
 
 class CartCheckoutForm(FlaskForm):
+    checkout_key = HiddenField()
     customer_name = StringField("Customer Name", validators=[Optional(), Length(max=120)])
     payment_method = SelectField("Payment Method", choices=[("Cash", "Cash"), ("M-Pesa", "M-Pesa"), ("Card", "Credit/Debit Card")], validators=[DataRequired()])
     amount_tendered = DecimalField("Amount Tendered", validators=[Optional(), NumberRange(min=0)])
@@ -732,6 +745,7 @@ def add_to_cart():
             else:
                 cart[key] = new_quantity
                 session["cart"] = cart
+                session.setdefault("checkout_key", str(uuid.uuid4()))
                 flash(f"Added {form.quantity.data} {product.name} to the cart.", "success")
     else:
         flash("Choose a product and enter a valid quantity.", "danger")
@@ -744,6 +758,8 @@ def cart():
     add_form = CartAddForm()
     add_form.product_id.choices = product_choices()
     checkout_form = CartCheckoutForm()
+    session.setdefault("checkout_key", str(uuid.uuid4()))
+    checkout_form.checkout_key.data = session["checkout_key"]
     items = get_cart_items()
     return render_template("cart.html", add_form=add_form, checkout_form=checkout_form, items=items, cart_total=sum(item["total"] for item in items))
 
@@ -768,6 +784,10 @@ def checkout_cart():
     if not form.validate_on_submit():
         flash("Please check the checkout details.", "danger")
         return redirect(url_for("cart"))
+    request_key = form.checkout_key.data or session.get("checkout_key")
+    if not request_key or request_key != session.get("checkout_key"):
+        flash("This checkout form has already been submitted. Please review the current cart.", "warning")
+        return redirect(url_for("cart"))
     cart_total = sum(item["total"] for item in items)
     amount_tendered = float(form.amount_tendered.data) if form.amount_tendered.data is not None else None
     if form.payment_method.data == "Cash" and amount_tendered is not None and amount_tendered < cart_total:
@@ -791,6 +811,8 @@ def checkout_cart():
     receipt_token = str(uuid.uuid4())
     sales = []
     try:
+        db.session.add(CheckoutRequest(request_key=request_key, receipt_token=receipt_token))
+        db.session.flush()
         for index, item in enumerate(items):
             sales.append(create_sale_record(
                 item["product"],
@@ -805,9 +827,15 @@ def checkout_cart():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        existing_request = CheckoutRequest.query.filter_by(request_key=request_key).first()
+        if existing_request:
+            session.pop("cart", None)
+            session.pop("checkout_key", None)
+            return redirect(url_for("combined_receipt", receipt_token=existing_request.receipt_token))
         flash("The cart could not be saved. No stock was reserved.", "danger")
         return redirect(url_for("cart"))
     session.pop("cart", None)
+    session.pop("checkout_key", None)
     flash(f"Sold {len(sales)} product(s) successfully.", "success")
     return redirect(url_for("combined_receipt", receipt_token=receipt_token))
 
