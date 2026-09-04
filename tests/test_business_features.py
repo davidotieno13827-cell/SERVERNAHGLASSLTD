@@ -184,6 +184,15 @@ class BusinessFeatureTests(unittest.TestCase):
             self.assertGreaterEqual(MetricSnapshot.query.count(), 1)
             self.assertEqual(MetricSnapshot.query.filter_by(is_initial=True).count(), 1)
 
+    def test_home_does_not_show_expected_profit_kpi(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        response = client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"Expected Profit", response.data)
+
     def test_low_selling_price_shows_warning(self):
         client = app.test_client()
         with client.session_transaction() as session:

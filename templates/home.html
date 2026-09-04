@@ -17,7 +17,6 @@
     <div class="col-md-2"><div class="stat-card"><span>Total Products</span><strong>{{ stats.total_products }}</strong></div></div>
     <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">TS</strong> Total Stock</span><strong>{{ stats.total_stock }}</strong></div></div>
     <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">IV</strong> Inventory Value</span><strong>KES {{ '%.2f'|format(stats.inventory_value) }}</strong></div></div>
-    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">EP</strong> Expected Profit</span><strong>KES {{ '%.2f'|format(stats.expected_profit) }}</strong></div></div>
     <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">SC</strong> Sales Count</span><strong>{{ stats.sales_count }}</strong></div></div>
     <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">TR</strong> Total Revenue</span><strong>KES {{ '%.2f'|format(stats.total_revenue) }}</strong></div></div>
 </div>
@@ -113,7 +112,6 @@
                         <th>Buying Price</th>
                         <th>Selling Price</th>
                         <th>Stock</th>
-                        <th>Expected Profit</th>
                         <th>Last Sold</th>
                         <th>Actions</th>
                     </tr>
@@ -127,7 +125,6 @@
                         <td>KES {{ '%.2f'|format(product.buying_price) }}</td>
                         <td>KES {{ '%.2f'|format(product.price) }}</td>
                         <td>{{ product.stock - product.reserved_stock }} available{% if product.reserved_stock %}<br><small class="text-muted">{{ product.reserved_stock }} reserved</small>{% endif %}</td>
-                        <td>KES {{ '%.2f'|format((product.price - product.buying_price) * product.stock) }}</td>
                         <td>
                             {% set last_sale = product.sales|sort(attribute='timestamp', reverse=True)|first %}
                             {% if last_sale %}
@@ -155,7 +152,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="9" class="text-center text-muted">No products found.</td>
+                        <td colspan="8" class="text-center text-muted">No products found.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
