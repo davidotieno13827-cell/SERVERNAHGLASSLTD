@@ -39,9 +39,7 @@ Stock is reduced only after the receipt is successfully sent to the printer. A p
    ```bash
    python run.py
    ```
-5. Open http://localhost:5000 and log in with:
-   - Username: admin
-   - Password: password123
+5. Open http://localhost:5000. On a new installation, the generated administrator credentials are saved in `instance/initial_admin_credentials.txt`.
 
 ## Default environment
 Copy `.env.example` to `.env` and adjust values as needed.
@@ -61,6 +59,12 @@ The POS is designed to run on the shop computer without internet access:
 4. Open `http://127.0.0.1:5000` in the browser on the shop computer.
 5. Install the Xprinter XP-Q80A Windows driver and connect it by USB.
 
-The database is stored locally at `instance/app.db`. Back up that file regularly
-to a USB drive or another safe location. The POS does not require GitHub,
-hosting, email, or internet payment services for local sales and printing.
+The database is stored locally at `instance/app.db`. The POS automatically keeps
+the latest 30 timestamped backups in `instance/backups/`; copy those backups to a
+USB drive regularly. Pending receipts can be retried or cancelled from
+**Pending Receipts**. Stock is reserved for pending sales and is finalized only
+after printing or an explicit **Printed Manually** confirmation.
+
+Cashiers can sell and print receipts. Administrator permission is required to
+add, edit, restock, delete, or import products. The POS does not require
+GitHub, hosting, email, or internet payment services for local sales and printing.

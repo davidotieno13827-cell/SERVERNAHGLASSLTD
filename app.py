@@ -1,8 +1,10 @@
 import csv
 import io
 import os
+import secrets
 import textwrap
 import uuid
+import shutil
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -39,7 +41,16 @@ INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
 os.makedirs(INSTANCE_DIR, exist_ok=True)
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "save_secret_key")
+secret_path = os.path.join(INSTANCE_DIR, "secret.key")
+if os.getenv("SECRET_KEY"):
+    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
+elif os.path.exists(secret_path):
+    with open(secret_path, "r", encoding="ascii") as secret_file:
+        app.config["SECRET_KEY"] = secret_file.read().strip()
+else:
+    app.config["SECRET_KEY"] = secrets.token_hex(32)
+    with open(secret_path, "w", encoding="ascii") as secret_file:
+        secret_file.write(app.config["SECRET_KEY"])
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL",
     f"sqlite:///{os.path.join(INSTANCE_DIR, 'app.db')}",
@@ -49,6 +60,7 @@ app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", "2097152"
 app.config["SESSION_COOKIE_SAMESITE"] = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("FORCE_HTTPS", "false").lower() == "true"
 app.config["WTF_CSRF_ENABLED"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
 BUSINESS_TIMEZONE = timezone(timedelta(hours=3), name="EAT")
 BUSINESS_NAME = os.getenv("BUSINESS_NAME", "SERVERNAH GLASS LIMITED")
 BUSINESS_ADDRESS = os.getenv("BUSINESS_ADDRESS", "HOMABAY, RODI")
@@ -220,6 +232,11 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default="cashier")
+
+    @property
+    def is_admin(self):
+        return self.role == "admin"
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -253,6 +270,7 @@ class Product(db.Model):
     buying_price = db.Column(db.Float, nullable=False, default=0.0)
     price = db.Column(db.Float, nullable=False)
     stock = db.Column(db.Integer, nullable=False, default=0)
+    reserved_stock = db.Column(db.Integer, nullable=False, default=0)
     min_stock_level = db.Column(db.Integer, nullable=False, default=5)
     supplier_id = db.Column(db.Integer, db.ForeignKey("supplier.id"), nullable=True)
     sales = db.relationship("Sale", backref="product", lazy=True, cascade="all, delete-orphan")
@@ -279,6 +297,8 @@ class Sale(db.Model):
     register_number = db.Column(db.String(50), nullable=False, default="Till 1")
     receipt_token = db.Column(db.String(36), nullable=True, index=True)
     receipt_printed = db.Column(db.Boolean, nullable=False, default=False)
+    status = db.Column(db.String(20), nullable=False, default="pending", index=True)
+    print_attempts = db.Column(db.Integer, nullable=False, default=0)
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     @property
@@ -350,13 +370,34 @@ def load_user(user_id):
 
 def create_default_admin():
     username = os.getenv("ADMIN_USERNAME", "admin")
-    password = os.getenv("ADMIN_PASSWORD", "password123")
+    password = os.getenv("ADMIN_PASSWORD")
     user = User.query.filter_by(username=username).first()
     if not user:
-        admin = User(username=username)
+        password = password or secrets.token_urlsafe(12)
+        admin = User(username=username, role="admin")
         admin.set_password(password)
         db.session.add(admin)
         db.session.commit()
+        credential_path = os.path.join(INSTANCE_DIR, "initial_admin_credentials.txt")
+        if not os.path.exists(credential_path):
+            with open(credential_path, "w", encoding="ascii") as credential_file:
+                credential_file.write("Username: {}\nPassword: {}\n".format(username, password))
+    elif user.role != "admin":
+        user.role = "admin"
+        db.session.commit()
+
+
+def admin_required(view):
+    from functools import wraps
+
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if not current_user.is_admin:
+            flash("Administrator permission is required for this action.", "danger")
+            return redirect(url_for("home"))
+        return view(*args, **kwargs)
+    return wrapped
 
 
 def get_dashboard_stats():
@@ -366,11 +407,11 @@ def get_dashboard_stats():
     expected_profit = db.session.query(
         db.func.coalesce(db.func.sum((Product.price - Product.buying_price) * Product.stock), 0)
     ).scalar() or 0
-    sales_count = Sale.query.count()
-    total_revenue = db.session.query(db.func.coalesce(db.func.sum(Sale.total_price), 0)).scalar() or 0
+    sales_count = Sale.query.filter_by(status="printed").count()
+    total_revenue = db.session.query(db.func.coalesce(db.func.sum(Sale.total_price), 0)).filter(Sale.status == "printed").scalar() or 0
     total_cost = db.session.query(
         db.func.coalesce(db.func.sum(Sale.cost_price * Sale.quantity), 0)
-    ).scalar() or 0
+    ).filter(Sale.status == "printed").scalar() or 0
     gross_profit = total_revenue - total_cost
     return {
         "total_products": total_products,
@@ -389,6 +430,9 @@ def ensure_product_schema():
     if "product" not in inspector.get_table_names():
         return
     columns = {column["name"] for column in inspector.get_columns("product")}
+    if "reserved_stock" not in columns:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE product ADD COLUMN reserved_stock INTEGER NOT NULL DEFAULT 0"))
     if "buying_price" not in columns:
         with db.engine.begin() as conn:
             conn.execute(text("ALTER TABLE product ADD COLUMN buying_price FLOAT NOT NULL DEFAULT 0.0"))
@@ -425,11 +469,37 @@ def ensure_sale_schema():
         "register_number": "VARCHAR(50) NOT NULL DEFAULT 'Till 1'",
         "receipt_token": "VARCHAR(36)",
         "receipt_printed": "BOOLEAN NOT NULL DEFAULT 1",
+        "status": "VARCHAR(20) NOT NULL DEFAULT 'printed'",
+        "print_attempts": "INTEGER NOT NULL DEFAULT 0",
     }
     for column_name, column_definition in new_columns.items():
         if column_name not in columns:
             with db.engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE sale ADD COLUMN {column_name} {column_definition}"))
+
+
+def ensure_user_schema():
+    inspector = db.inspect(db.engine)
+    if "user" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("user")}
+    if "role" not in columns:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE user ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'cashier'"))
+
+
+def backup_database():
+    database_path = os.path.join(INSTANCE_DIR, "app.db")
+    if not os.path.exists(database_path):
+        return
+    backup_dir = os.path.join(INSTANCE_DIR, "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+    backup_path = os.path.join(backup_dir, "app-{}.db".format(datetime.now().strftime("%Y%m%d-%H%M%S")))
+    if not os.path.exists(backup_path):
+        shutil.copy2(database_path, backup_path)
+    backups = sorted((os.path.join(backup_dir, name) for name in os.listdir(backup_dir) if name.endswith(".db")), key=os.path.getmtime)
+    for old_backup in backups[:-30]:
+        os.remove(old_backup)
 
 
 def ensure_supplier_schema():
@@ -463,7 +533,9 @@ def setup_default_admin():
         ensure_sale_schema()
         ensure_supplier_schema()
         ensure_customer_schema()
+        ensure_user_schema()
         create_default_admin()
+        backup_database()
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -540,8 +612,13 @@ def quick_sell():
         if qty < 1:
             flash("Quantity must be at least 1.", "danger")
             return redirect(url_for("home"))
-        if product.stock < qty:
-            flash(f"Not enough stock for {product.name}. Available: {product.stock}", "danger")
+        if product.stock - product.reserved_stock < qty:
+            flash(f"Not enough available stock for {product.name}. Available: {product.stock - product.reserved_stock}", "danger")
+            return redirect(url_for("home"))
+        amount_tendered = float(form.amount_tendered.data) if form.amount_tendered.data is not None else None
+        total = product.price * qty
+        if form.payment_method.data == "Cash" and amount_tendered is not None and amount_tendered < total:
+            flash(f"Amount tendered is KES {amount_tendered:.2f}, but the total is KES {total:.2f}. Please top up KES {total - amount_tendered:.2f}.", "danger")
             return redirect(url_for("home"))
 
         customer = None
@@ -563,8 +640,9 @@ def quick_sell():
             customer=customer,
             customer_name=customer_name,
             payment_method=form.payment_method.data,
-            amount_tendered=float(form.amount_tendered.data) if form.amount_tendered.data is not None else None,
+            amount_tendered=amount_tendered,
         )
+        db.session.commit()
         flash(f"Sold {qty} {product.name} successfully.", "success")
         return redirect(url_for("receipt", sale_id=sale.id))
 
@@ -583,8 +661,9 @@ def get_cart_items():
     items = []
     for product_id, quantity in cart.items():
         product = db.session.get(Product, int(product_id))
+        available = product.stock - product.reserved_stock if product else 0
         if product and quantity > 0:
-            items.append({"product": product, "quantity": int(quantity), "total": product.price * int(quantity)})
+            items.append({"product": product, "quantity": int(quantity), "total": product.price * int(quantity), "available": available})
     return items
 
 
@@ -597,14 +676,14 @@ def add_to_cart():
         product = db.session.get(Product, form.product_id.data)
         if not product:
             flash("Selected product was not found.", "danger")
-        elif product.stock < form.quantity.data:
-            flash(f"Not enough stock for {product.name}. Available: {product.stock}", "danger")
+        elif product.stock - product.reserved_stock < form.quantity.data:
+            flash(f"Not enough available stock for {product.name}. Available: {product.stock - product.reserved_stock}", "danger")
         else:
             cart = session.get("cart", {})
             key = str(product.id)
             new_quantity = int(cart.get(key, 0)) + form.quantity.data
-            if new_quantity > product.stock:
-                flash(f"Cart quantity for {product.name} cannot exceed stock ({product.stock}).", "danger")
+            if new_quantity > product.stock - product.reserved_stock:
+                flash(f"Cart quantity for {product.name} cannot exceed available stock ({product.stock - product.reserved_stock}).", "danger")
             else:
                 cart[key] = new_quantity
                 session["cart"] = cart
@@ -651,8 +730,8 @@ def checkout_cart():
         flash(f"Amount tendered is KES {amount_tendered:.2f}, but the total is KES {cart_total:.2f}. Please top up KES {shortfall:.2f}.", "danger")
         return redirect(url_for("cart"))
     for item in items:
-        if item["product"].stock < item["quantity"]:
-            flash(f"Not enough stock for {item['product'].name}. Available: {item['product'].stock}", "danger")
+        if item["product"].stock - item["product"].reserved_stock < item["quantity"]:
+            flash(f"Not enough available stock for {item['product'].name}.", "danger")
             return redirect(url_for("cart"))
 
     customer_name = form.customer_name.data.strip() if form.customer_name.data else "Walk-in customer"
@@ -666,17 +745,23 @@ def checkout_cart():
 
     receipt_token = str(uuid.uuid4())
     sales = []
-    for index, item in enumerate(items):
-        sales.append(create_sale_record(
-            item["product"],
-            item["quantity"],
-            customer=customer,
-            customer_name=customer_name,
-            payment_method=form.payment_method.data,
-            amount_tendered=amount_tendered if index == 0 else None,
-            change_total=cart_total if index == 0 else None,
-            receipt_token=receipt_token,
-        ))
+    try:
+        for index, item in enumerate(items):
+            sales.append(create_sale_record(
+                item["product"],
+                item["quantity"],
+                customer=customer,
+                customer_name=customer_name,
+                payment_method=form.payment_method.data,
+                amount_tendered=amount_tendered if index == 0 else None,
+                change_total=cart_total if index == 0 else None,
+                receipt_token=receipt_token,
+            ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash("The cart could not be saved. No stock was reserved.", "danger")
+        return redirect(url_for("cart"))
     session.pop("cart", None)
     flash(f"Sold {len(sales)} product(s) successfully.", "success")
     return redirect(url_for("combined_receipt", receipt_token=receipt_token))
@@ -692,8 +777,8 @@ def sell_product(product_id):
     if qty < 1:
         flash("Quantity must be at least 1.", "danger")
         return redirect(url_for("home"))
-    if product.stock < qty:
-        flash(f"Not enough stock for {product.name}. Available: {product.stock}", "danger")
+    if product.stock - product.reserved_stock < qty:
+        flash(f"Not enough available stock for {product.name}. Available: {product.stock - product.reserved_stock}", "danger")
         return redirect(url_for("home"))
 
     customer = None
@@ -703,6 +788,7 @@ def sell_product(product_id):
             customer_name = customer.name
 
     sale = create_sale_record(product, qty, customer=customer, customer_name=customer_name)
+    db.session.commit()
     flash(f"Sold {qty} unit(s) of {product.name}.", "success")
     return redirect(url_for("receipt", sale_id=sale.id))
 
@@ -717,6 +803,9 @@ def create_sale_record(
     change_total=None,
     receipt_token=None,
 ):
+    if product.stock - product.reserved_stock < quantity:
+        raise ValueError(f"Not enough available stock for {product.name}.")
+    product.reserved_stock += quantity
     total = product.price * quantity
     sale = Sale(
         product_id=product.id,
@@ -734,21 +823,23 @@ def create_sale_record(
         cashier_name=current_user.username if current_user.is_authenticated else None,
         register_number=REGISTER_NUMBER,
         receipt_token=receipt_token,
+        status="pending",
         timestamp=datetime.utcnow(),
     )
     db.session.add(sale)
-    db.session.commit()
     return sale
 
 
 def finalize_printed_sales(sales):
     for sale in sales:
-        if sale.receipt_printed:
+        if sale.receipt_printed or sale.status == "cancelled":
             continue
         product = db.session.get(Product, sale.product_id)
         if not product or product.stock < sale.quantity:
             raise RuntimeError(f"Not enough stock to finalize {sale.product_name}.")
         product.stock -= sale.quantity
+        product.reserved_stock = max(0, product.reserved_stock - sale.quantity)
+        sale.status = "printed"
         sale.receipt_printed = True
     db.session.commit()
 
@@ -757,13 +848,40 @@ def validate_printable_sales(sales):
     for sale in sales:
         if sale.receipt_printed:
             continue
+        if sale.status not in ("pending", "failed"):
+            raise RuntimeError("This receipt is already being printed or has been completed.")
         product = db.session.get(Product, sale.product_id)
         if not product or product.stock < sale.quantity:
             raise RuntimeError(f"Not enough stock to print {sale.product_name}.")
 
 
+def claim_sales_for_printing(sales):
+    sale_ids = [sale.id for sale in sales if not sale.receipt_printed]
+    if not sale_ids:
+        return
+    updated = Sale.query.filter(
+        Sale.id.in_(sale_ids),
+        Sale.status.in_(["pending", "failed"]),
+        Sale.receipt_printed.is_(False),
+    ).update(
+        {"status": "printing", "print_attempts": Sale.print_attempts + 1},
+        synchronize_session=False,
+    )
+    if updated != len(sale_ids):
+        db.session.rollback()
+        raise RuntimeError("This receipt has already been printed or is being printed.")
+    db.session.commit()
+
+
+def mark_print_failed(sales):
+    for sale in sales:
+        if not sale.receipt_printed:
+            sale.status = "failed"
+    db.session.commit()
+
+
 @app.route("/add", methods=["GET", "POST"])
-@login_required
+@admin_required
 def add_product():
     form = ProductForm()
     form.supplier_id.choices = [(supplier.id, supplier.name) for supplier in Supplier.query.order_by(Supplier.name.asc()).all()]
@@ -796,7 +914,7 @@ def add_product():
 
 
 @app.route("/edit/<int:product_id>", methods=["GET", "POST"])
-@login_required
+@admin_required
 def edit_product(product_id):
     product = Product.query.get_or_404(product_id)
     form = ProductForm(obj=product)
@@ -824,7 +942,7 @@ def edit_product(product_id):
 
 
 @app.route("/restock/<int:product_id>", methods=["GET", "POST"])
-@login_required
+@admin_required
 def restock_product(product_id):
     product = Product.query.get_or_404(product_id)
     form = RestockForm()
@@ -837,7 +955,7 @@ def restock_product(product_id):
 
 
 @app.route("/delete/<int:product_id>", methods=["POST"])
-@login_required
+@admin_required
 def delete_product(product_id):
     product = Product.query.get_or_404(product_id)
     db.session.delete(product)
@@ -854,7 +972,7 @@ def sales_history():
     q = request.args.get("q", "", type=str).strip()
     page = request.args.get("page", 1, type=int)
 
-    query = Sale.query
+    query = Sale.query.filter(Sale.status == "printed")
     if start_date:
         query = query.filter(Sale.timestamp >= datetime.strptime(start_date, "%Y-%m-%d"))
     if end_date:
@@ -868,11 +986,47 @@ def sales_history():
     return render_template("sales_history.html", sales=sales, start_date=start_date, end_date=end_date, q=q)
 
 
+@app.route("/pending-sales")
+@login_required
+def pending_sales():
+    pending = Sale.query.filter(Sale.status.in_(["pending", "failed", "printing"])).order_by(Sale.timestamp.asc()).all()
+    groups = []
+    grouped = {}
+    for sale in pending:
+        key = sale.receipt_token or str(sale.id)
+        if key not in grouped:
+            grouped[key] = {"token": sale.receipt_token, "sales": [], "total": 0}
+            groups.append(grouped[key])
+        grouped[key]["sales"].append(sale)
+        grouped[key]["total"] += sale.total_price
+    return render_template("pending_sales.html", groups=groups)
+
+
+@app.route("/pending-sales/<int:sale_id>/cancel", methods=["POST"])
+@login_required
+def cancel_pending_sale(sale_id):
+    sale = Sale.query.get_or_404(sale_id)
+    if sale.status not in ("pending", "failed"):
+        flash("Only pending or failed receipts can be cancelled.", "danger")
+        return redirect(url_for("pending_sales"))
+    sales = Sale.query.filter_by(receipt_token=sale.receipt_token).all() if sale.receipt_token else [sale]
+    for grouped_sale in sales:
+        if grouped_sale.status not in ("pending", "failed"):
+            continue
+        product = db.session.get(Product, grouped_sale.product_id)
+        if product:
+            product.reserved_stock = max(0, product.reserved_stock - grouped_sale.quantity)
+        grouped_sale.status = "cancelled"
+    db.session.commit()
+    flash("Pending sale cancelled and stock reservation released.", "info")
+    return redirect(url_for("pending_sales"))
+
+
 @app.route("/reports")
 @login_required
 def reports():
     stats = get_dashboard_stats()
-    recent_sales = Sale.query.order_by(Sale.timestamp.desc()).limit(5).all()
+    recent_sales = Sale.query.filter_by(status="printed").order_by(Sale.timestamp.desc()).limit(5).all()
     top_profit_products = db.session.query(
         Product.name,
         db.func.sum((Product.price - Product.buying_price) * Product.stock).label("potential_profit")
@@ -931,7 +1085,7 @@ def sales_summary():
     if end_date:
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
         query = query.filter(Sale.timestamp < end_dt.replace(hour=23, minute=59, second=59))
-    summary = query.group_by(db.func.date(Sale.timestamp)).order_by(db.func.date(Sale.timestamp).desc()).all()
+    summary = query.filter(Sale.status == "printed").group_by(db.func.date(Sale.timestamp)).order_by(db.func.date(Sale.timestamp).desc()).all()
     return render_template("sales_summary.html", summary=summary, start_date=start_date, end_date=end_date)
 
 
@@ -939,6 +1093,8 @@ def sales_summary():
 @login_required
 def receipt(sale_id):
     sale = Sale.query.get_or_404(sale_id)
+    if sale.receipt_token:
+        return redirect(url_for("combined_receipt", receipt_token=sale.receipt_token))
     return render_template("receipt.html", sale=sale)
 
 
@@ -947,11 +1103,18 @@ def receipt(sale_id):
 def print_receipt(sale_id):
     sale = Sale.query.get_or_404(sale_id)
     try:
+        if sale.receipt_printed:
+            print_receipt_to_printer(sale)
+            flash("Receipt reprinted successfully.", "success")
+            return redirect(url_for("receipt", sale_id=sale.id))
         validate_printable_sales([sale])
+        claim_sales_for_printing([sale])
         print_receipt_to_printer(sale)
         finalize_printed_sales([sale])
         flash("Receipt sent to the printer.", "success")
     except Exception as error:
+        if sale.status == "printing":
+            mark_print_failed([sale])
         flash("Receipt could not be printed: {}".format(error), "danger")
     return redirect(url_for("receipt", sale_id=sale.id))
 
@@ -972,13 +1135,34 @@ def print_combined_receipt(receipt_token):
     if not sales:
         return "Receipt not found", 404
     try:
+        if all(sale.receipt_printed for sale in sales):
+            print_combined_receipt_to_printer(sales)
+            flash("Receipt reprinted successfully.", "success")
+            return redirect(url_for("combined_receipt", receipt_token=receipt_token))
         validate_printable_sales(sales)
+        claim_sales_for_printing(sales)
         print_combined_receipt_to_printer(sales)
         finalize_printed_sales(sales)
         flash("Receipt sent to the printer.", "success")
     except Exception as error:
+        if any(sale.status == "printing" for sale in sales):
+            mark_print_failed(sales)
         flash("Receipt could not be printed: {}".format(error), "danger")
     return redirect(url_for("combined_receipt", receipt_token=receipt_token))
+
+
+@app.route("/receipt/<int:sale_id>/mark-printed", methods=["POST"])
+@login_required
+def mark_receipt_printed(sale_id):
+    sale = Sale.query.get_or_404(sale_id)
+    sales = Sale.query.filter_by(receipt_token=sale.receipt_token).all() if sale.receipt_token else [sale]
+    try:
+        validate_printable_sales(sales)
+        finalize_printed_sales(sales)
+        flash("Receipt marked as printed and stock finalized.", "success")
+    except Exception as error:
+        flash("Receipt could not be finalized: {}".format(error), "danger")
+    return redirect(url_for("combined_receipt", receipt_token=sale.receipt_token) if sale.receipt_token else url_for("receipt", sale_id=sale.id))
 
 
 @app.route("/export/inventory")
@@ -1008,7 +1192,7 @@ def export_sales():
     end_date = request.args.get("end_date")
     q = request.args.get("q", "", type=str).strip()
 
-    query = Sale.query
+    query = Sale.query.filter(Sale.status == "printed")
     if start_date:
         query = query.filter(Sale.timestamp >= datetime.strptime(start_date, "%Y-%m-%d"))
     if end_date:
@@ -1038,7 +1222,7 @@ def export_sales():
 
 
 @app.route("/import", methods=["GET", "POST"])
-@login_required
+@admin_required
 def import_csv():
     if request.method == "POST":
         file = request.files.get("file")
@@ -1125,4 +1309,4 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
         create_default_admin()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=False)

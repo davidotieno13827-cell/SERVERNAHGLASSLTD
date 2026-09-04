@@ -92,8 +92,14 @@
                 <div class="receipt-actions d-flex justify-content-center gap-2 mt-4">
                     <form method="POST" action="{{ url_for('print_combined_receipt', receipt_token=sale.receipt_token) if combined else url_for('print_receipt', sale_id=sale.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class="btn btn-primary" type="submit">Print Receipt</button>
+                        <button class="btn btn-primary" type="submit">{{ 'Reprint Receipt' if sale.receipt_printed else 'Print Receipt' }}</button>
                     </form>
+                    {% if not sale.receipt_printed %}
+                    <form method="POST" action="{{ url_for('mark_receipt_printed', sale_id=sale.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-outline-warning" type="submit">Printed Manually</button>
+                    </form>
+                    {% endif %}
                     <a class="btn btn-primary" href="{{ url_for('home') }}">Back to POS</a>
                 </div>
             </div>

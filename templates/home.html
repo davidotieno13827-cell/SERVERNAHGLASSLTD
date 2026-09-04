@@ -126,7 +126,7 @@
                         <td>{{ product.brand }}</td>
                         <td>KES {{ '%.2f'|format(product.buying_price) }}</td>
                         <td>KES {{ '%.2f'|format(product.price) }}</td>
-                        <td>{{ product.stock }}</td>
+                        <td>{{ product.stock - product.reserved_stock }} available{% if product.reserved_stock %}<br><small class="text-muted">{{ product.reserved_stock }} reserved</small>{% endif %}</td>
                         <td>KES {{ '%.2f'|format((product.price - product.buying_price) * product.stock) }}</td>
                         <td>
                             {% set last_sale = product.sales|sort(attribute='timestamp', reverse=True)|first %}

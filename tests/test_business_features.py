@@ -125,6 +125,8 @@ class BusinessFeatureTests(unittest.TestCase):
             self.assertEqual(Sale.query.count(), 3)
             self.assertEqual(Product.query.get(1).stock, 10)
             self.assertEqual(Product.query.get(second_product_id).stock, 4)
+            self.assertEqual(Product.query.get(1).reserved_stock, 2)
+            self.assertEqual(Product.query.get(second_product_id).reserved_stock, 1)
             token = response.headers["Location"].rsplit("/", 1)[-1]
             grouped_sales = Sale.query.filter_by(receipt_token=token).all()
             self.assertEqual(grouped_sales[0].change_amount, 150.0)
@@ -136,6 +138,38 @@ class BusinessFeatureTests(unittest.TestCase):
             self.assertEqual(Product.query.get(1).stock, 8)
             self.assertEqual(Product.query.get(second_product_id).stock, 3)
             self.assertTrue(all(sale.receipt_printed for sale in Sale.query.filter_by(receipt_token=token).all()))
+            self.assertEqual(Product.query.get(1).reserved_stock, 0)
+            self.assertEqual(Product.query.get(second_product_id).reserved_stock, 0)
+
+    def test_quick_sell_rejects_insufficient_cash(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        response = client.post(
+            "/quick_sell",
+            data={"product_id": "1", "customer_name": "", "quantity": "1", "payment_method": "Cash", "amount_tendered": "700"},
+            follow_redirects=True,
+        )
+        self.assertIn(b"Please top up KES 100.00", response.data)
+        with app.app_context():
+            self.assertEqual(Sale.query.count(), 1)
+            self.assertEqual(Product.query.get(1).stock, 10)
+            self.assertEqual(Product.query.get(1).reserved_stock, 0)
+
+    def test_cashier_cannot_open_inventory_management(self):
+        with app.app_context():
+            cashier = User(username="cashier", role="cashier")
+            cashier.set_password("cashier-password")
+            db.session.add(cashier)
+            db.session.commit()
+            cashier_id = cashier.id
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(cashier_id)
+            session["_fresh"] = True
+        response = client.get("/add")
+        self.assertEqual(response.status_code, 302)
 
     def test_failed_print_does_not_reduce_stock(self):
         client = app.test_client()
