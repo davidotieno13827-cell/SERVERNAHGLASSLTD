@@ -15,11 +15,11 @@
 
 <div class="row g-3 mb-4">
     <div class="col-md-2"><div class="stat-card"><span>Total Products</span><strong>{{ stats.total_products }}</strong></div></div>
-    <div class="col-md-2"><div class="stat-card"><span>Total Stock</span><strong>{{ stats.total_stock }}</strong></div></div>
-    <div class="col-md-2"><div class="stat-card"><span>Inventory Value</span><strong>KES {{ '%.2f'|format(stats.inventory_value) }}</strong></div></div>
-    <div class="col-md-2"><div class="stat-card"><span>Expected Profit</span><strong>KES {{ '%.2f'|format(stats.expected_profit) }}</strong></div></div>
-    <div class="col-md-2"><div class="stat-card"><span>Sales Count</span><strong>{{ stats.sales_count }}</strong></div></div>
-    <div class="col-md-2"><div class="stat-card"><span>Total Revenue</span><strong>KES {{ '%.2f'|format(stats.total_revenue) }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">TS</strong> Total Stock</span><strong>{{ stats.total_stock }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">IV</strong> Inventory Value</span><strong>KES {{ '%.2f'|format(stats.inventory_value) }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">EP</strong> Expected Profit</span><strong>KES {{ '%.2f'|format(stats.expected_profit) }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">SC</strong> Sales Count</span><strong>{{ stats.sales_count }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">TR</strong> Total Revenue</span><strong>KES {{ '%.2f'|format(stats.total_revenue) }}</strong></div></div>
 </div>
 
 <div class="row g-4 mb-4">

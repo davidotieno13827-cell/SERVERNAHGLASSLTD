@@ -29,6 +29,14 @@ body {
     opacity: 0.8;
 }
 
+.stat-card .stat-code {
+    display: inline-block;
+    font-size: 0.7rem;
+    margin: 0 4px 0 0;
+    opacity: 1;
+    letter-spacing: 0;
+}
+
 .stat-card strong {
     font-size: 1.8rem;
     margin-top: 8px;
