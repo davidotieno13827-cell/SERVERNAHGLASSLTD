@@ -40,8 +40,9 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
 os.makedirs(INSTANCE_DIR, exist_ok=True)
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 secret_path = os.path.join(INSTANCE_DIR, "secret.key")
 if os.getenv("SECRET_KEY"):
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
