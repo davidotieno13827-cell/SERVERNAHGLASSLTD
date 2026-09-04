@@ -77,6 +77,7 @@
                     <div class="mb-3">
                         {{ checkout_form.amount_tendered.label(class='form-label') }}
                         {{ checkout_form.amount_tendered(class='form-control', min=0, step='0.01') }}
+                        <div class="form-text">Cash payments only.</div>
                         <div id="paymentWarning" class="alert alert-warning mt-2 mb-0 d-none" role="alert"></div>
                     </div>
                     <button id="checkoutButton" class="btn btn-success w-100" type="submit">Complete Sale and View Receipt</button>
@@ -98,6 +99,10 @@
     function updatePaymentWarning() {
         const amount = Number.parseFloat(amountInput.value);
         const isCash = paymentMethod.value === 'Cash';
+        amountInput.disabled = !isCash;
+        if (!isCash) {
+            amountInput.value = '';
+        }
         const isUnderpaid = isCash && Number.isFinite(amount) && amount < total;
         if (isUnderpaid) {
             const shortfall = (total - amount).toFixed(2);
@@ -110,7 +115,10 @@
         }
     }
 
-    amountInput.addEventListener('input', updatePaymentWarning);
-    paymentMethod.addEventListener('change', updatePaymentWarning);
+    if (amountInput && paymentMethod && warning && checkoutButton) {
+        amountInput.addEventListener('input', updatePaymentWarning);
+        paymentMethod.addEventListener('change', updatePaymentWarning);
+        updatePaymentWarning();
+    }
 </script>
 {% endblock %}

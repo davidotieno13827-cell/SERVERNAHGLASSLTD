@@ -47,6 +47,7 @@
                     <div class="mb-3">
                         {{ quick_sale_form.amount_tendered.label(class_='form-label') }}
                         {{ quick_sale_form.amount_tendered(class_='form-control', min=0, step='0.01') }}
+                        <div class="form-text">Cash payments only.</div>
                     </div>
                     <button class="btn btn-primary w-100" type="submit">Sell</button>
                 </form>
@@ -174,4 +175,19 @@
         {% endif %}
     </div>
 </div>
+<script>
+    const quickPaymentMethod = document.getElementById('payment_method');
+    const quickAmountInput = document.getElementById('amount_tendered');
+
+    function updateQuickPaymentFields() {
+        const isCash = quickPaymentMethod.value === 'Cash';
+        quickAmountInput.disabled = !isCash;
+        if (!isCash) {
+            quickAmountInput.value = '';
+        }
+    }
+
+    quickPaymentMethod.addEventListener('change', updateQuickPaymentFields);
+    updateQuickPaymentFields();
+</script>
 {% endblock %}

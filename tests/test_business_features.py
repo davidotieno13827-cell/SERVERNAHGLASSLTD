@@ -66,6 +66,55 @@ class BusinessFeatureTests(unittest.TestCase):
         response = client.get("/receipt/1")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Receipt", response.data)
+        self.assertIn(b"Goods once sold cannot be accepted back", response.data)
+
+    def test_sales_history_can_search_by_receipt_number(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        with app.app_context():
+            Sale.query.get(1).status = "printed"
+            db.session.commit()
+        response = client.get("/history?receipt_id=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Tempered Glass", response.data)
+        missing = client.get("/history?receipt_id=9999")
+        self.assertIn(b"No sales found", missing.data)
+
+    def test_pending_receipt_can_add_product(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        response = client.post(
+            "/receipt/1/add",
+            data={"product_id": "1", "quantity": "1"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            sales = Sale.query.order_by(Sale.id.asc()).all()
+            self.assertEqual(len(sales), 2)
+            self.assertIsNotNone(sales[0].receipt_token)
+            self.assertEqual(sales[1].receipt_token, sales[0].receipt_token)
+            self.assertEqual(Product.query.get(1).reserved_stock, 1)
+
+    def test_pending_receipt_can_be_cancelled(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        response = client.post("/pending-sales/1/cancel", follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            self.assertEqual(Sale.query.get(1).status, "cancelled")
+            cancellation = ProductActivity.query.filter_by(activity_type="cancelled sale").first()
+            self.assertIsNotNone(cancellation)
+            self.assertEqual(cancellation.quantity_added, 2)
+        listing = client.get("/pending-sales")
+        self.assertIn(b"Cancelled", listing.data)
+        self.assertIn(b"Tempered Glass", listing.data)
 
     def test_bootstrap_assets_are_local(self):
         client = app.test_client()

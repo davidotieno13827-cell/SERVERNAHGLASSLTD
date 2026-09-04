@@ -69,9 +69,12 @@ The POS is designed to run on the shop computer without internet access:
 4. Open `http://127.0.0.1:5000` in the browser on the shop computer.
 5. Install the Xprinter XP-Q80A Windows driver and connect it by USB.
 
-The database is stored locally at `instance/app.db`. The POS automatically keeps
-the latest 30 timestamped backups in `instance/backups/`; copy those backups to a
-USB drive regularly. Pending receipts can be retried or cancelled from
+The database is stored locally at `instance/app.db`. The POS creates consistent
+timestamped SQLite snapshots in `instance/backups/` and never automatically
+deletes old backups. Copy those backups to a USB drive or another computer
+regularly; local backups cannot protect against disk failure, theft, or ransomware.
+Products with sales or history cannot be deleted, protecting those records.
+Pending receipts can be retried or cancelled from
 **Pending Receipts**. Stock is reserved for pending sales and is finalized only
 after printing or an explicit **Printed Manually** confirmation.
 

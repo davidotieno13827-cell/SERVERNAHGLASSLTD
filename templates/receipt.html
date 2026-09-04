@@ -5,90 +5,76 @@
 <div class="row justify-content-center">
     <div class="col-lg-5">
         <div class="card shadow-sm border-0 rounded-4 receipt-card">
-            <div class="card-body">
-                <div class="text-center mb-4">
+            <div class="card-body receipt-paper">
+                <div class="receipt-header text-center">
                     <h3>{{ business_name }}</h3>
-                    <p class="text-muted mb-0">Official Sales Receipt</p>
-                    {% if business_address %}<div>{{ business_address }}</div>{% endif %}
-                    {% if business_phone or business_email or business_website %}
-                    <div>{% if business_phone %}{{ business_phone }}{% endif %}{% if business_email %} | {{ business_email }}{% endif %}{% if business_website %} | {{ business_website }}{% endif %}</div>
-                    {% endif %}
-                    {% if business_tax_id %}<div>Tax ID: {{ business_tax_id }}</div>{% endif %}
-                </div>
-
-                <div class="mb-3 d-flex justify-content-between">
-                    <span>Receipt / Invoice #</span>
-                    <strong>{{ sale.id }}</strong>
-                </div>
-                <div class="mb-3 d-flex justify-content-between">
-                    <span>Date</span>
-                    <strong>{{ sale.timestamp|business_datetime }}</strong>
-                </div>
-                <div class="mb-3 d-flex justify-content-between">
-                    <span>Cashier</span>
-                    <strong>{{ sale.cashier_name or 'POS operator' }}</strong>
-                </div>
-                <div class="mb-3 d-flex justify-content-between">
-                    <span>Register</span>
-                    <strong>{{ sale.register_number }}</strong>
-                </div>
-                <div class="mb-3 d-flex justify-content-between">
-                    <span>Customer</span>
-                    <strong>{{ sale.customer_name or 'Walk-in customer' }}</strong>
-                </div>
-                <div class="mb-3 d-flex justify-content-between">
-                    <span>Receipt Status</span>
-                    <strong class="{% if not sale.receipt_printed %}text-warning{% else %}text-success{% endif %}">
-                        {{ 'Printed' if sale.receipt_printed else 'Pending print' }}
-                    </strong>
+                    {% if business_branch %}<div>({{ business_branch }})</div>{% endif %}
+                    {% if business_address %}<div>P.O. BOX: {{ business_address }}</div>{% endif %}
+                    {% if business_phone %}<div>TEL: {{ business_phone }}</div>{% endif %}
+                    {% if business_email %}<div>{{ business_email }}</div>{% endif %}
+                    {% if business_tax_id %}<div>PIN #: {{ business_tax_id }}</div>{% endif %}
+                    <strong class="d-block">CASH SALE</strong>
+                    <div>Till No: {{ sale.register_number }} &nbsp;&nbsp; Cash Sale #: {{ sale.id }}</div>
+                    <div>M/S: CASH SALE</div>
+                    <div>Date &amp; Time: {{ sale.timestamp|business_datetime('%d/%m/%Y %H:%M') }}</div>
+                    <div>Payment Method: {{ sale.payment_method }}</div>
                 </div>
 
                 <hr>
-                <div class="d-flex justify-content-between fw-semibold">
-                    <span>Item / SKU</span>
-                    <span>Qty x Unit Price</span>
+                <div class="receipt-item-row receipt-item-header fw-semibold">
+                    <span>ITEM</span><span>QTY</span><span>PRICE</span><span>AMOUNT</span>
                 </div>
                 {% if combined %}
                     {% for receipt_sale in sales %}
-                    <div class="d-flex justify-content-between mt-2">
-                        <span>{{ receipt_sale.product_name }}{% if receipt_sale.product_sku %}<br><small>{{ receipt_sale.product_sku }}</small>{% endif %}</span>
-                        <span class="text-end">{{ receipt_sale.quantity }} x KES {{ '%.2f'|format(receipt_sale.price) }}<br>KES {{ '%.2f'|format(receipt_sale.total_price) }}</span>
+                    <div class="receipt-item-row">
+                        <span>{{ receipt_sale.product_name[:22] }}</span><span>{{ receipt_sale.quantity }}</span><span>{{ '%.2f'|format(receipt_sale.price) }}</span><span>{{ '%.2f'|format(receipt_sale.total_price) }}</span>
                     </div>
+                    {% if receipt_sale.product_sku %}<div class="receipt-sku">SKU: {{ receipt_sale.product_sku }}</div>{% endif %}
                     {% endfor %}
                 {% else %}
-                    <div class="d-flex justify-content-between mt-2">
-                        <span>{{ sale.product_name }}{% if sale.product_sku %}<br><small>{{ sale.product_sku }}</small>{% endif %}</span>
-                        <span class="text-end">{{ sale.quantity }} x KES {{ '%.2f'|format(sale.price) }}<br>KES {{ '%.2f'|format(sale.total_price) }}</span>
+                    <div class="receipt-item-row">
+                        <span>{{ sale.product_name[:22] }}</span><span>{{ sale.quantity }}</span><span>{{ '%.2f'|format(sale.price) }}</span><span>{{ '%.2f'|format(sale.total_price) }}</span>
                     </div>
+                    {% if sale.product_sku %}<div class="receipt-sku">SKU: {{ sale.product_sku }}</div>{% endif %}
                 {% endif %}
-                <div class="d-flex justify-content-between mt-2">
-                    <span>Subtotal</span>
-                    <span>KES {{ '%.2f'|format((sales|sum(attribute='total_price') if combined else sale.total_price) + sale.discount_amount) }}</span>
-                </div>
-                <div class="d-flex justify-content-between mt-2 fs-5">
-                    <strong>Grand Total</strong>
-                    <strong>KES {{ '%.2f'|format(sales|sum(attribute='total_price') if combined else sale.total_price) }}</strong>
-                </div>
                 <hr>
-                <div class="d-flex justify-content-between">
-                    <span>Payment Method</span>
-                    <strong>{{ sale.payment_method }}</strong>
-                </div>
+                <div class="receipt-summary-row"><span>TOTAL:</span><span>KES {{ '%.2f'|format(sales|sum(attribute='total_price') if combined else sale.total_price) }}</span></div>
+                <div class="receipt-summary-row"><span>CHANGE:</span><span>KES {{ '%.2f'|format(sale.change_amount or 0) }}</span></div>
+                <div class="receipt-summary-row"><span>TOTAL ITEMS:</span><span>{{ sales|length if combined else 1 }}</span></div>
+                <div class="receipt-summary-row"><span>TOTAL QTY:</span><span>{{ sales|sum(attribute='quantity') if combined else sale.quantity }}</span></div>
+                <div class="receipt-summary-row"><span>TOTAL WEIGHT:</span><span>0.00</span></div>
                 {% if sale.amount_tendered is not none %}
-                <div class="d-flex justify-content-between mt-2">
-                    <span>Amount Tendered</span>
-                    <span>KES {{ '%.2f'|format(sale.amount_tendered) }}</span>
-                </div>
-                <div class="d-flex justify-content-between mt-2">
-                    <span>Change</span>
-                    <span>KES {{ '%.2f'|format(sale.change_amount or 0) }}</span>
-                </div>
-                <hr>
+                <div class="receipt-summary-row"><span>AMOUNT TENDERED:</span><span>KES {{ '%.2f'|format(sale.amount_tendered) }}</span></div>
                 {% endif %}
-                <div class="text-center small mt-3">
-                    <div>{{ return_policy }}</div>
-                    <div class="mt-2">Thank you for shopping with us.</div>
+                <div class="receipt-notices text-center">
+                    <strong class="d-block">{{ customer_notice_title }}</strong>
+                    <div class="receipt-notice-box">{{ advance_payment_policy }}</div>
+                    <div class="receipt-notice-box">{{ return_policy }}</div>
+                    <div>Thank you for shopping with us.</div>
                 </div>
+                {% if sale.status in ['pending', 'failed'] %}
+                <div class="receipt-actions border-top pt-3 mt-3">
+                    <h5>Edit Pending Receipt</h5>
+                    <form method="POST" action="{{ url_for('add_to_pending_receipt', sale_id=sale.id) }}" class="row g-2 align-items-end">
+                        {{ add_form.hidden_tag() }}
+                        <div class="col-md-7">
+                            {{ add_form.product_id.label(class='form-label') }}
+                            {{ add_form.product_id(class='form-select') }}
+                        </div>
+                        <div class="col-md-3">
+                            {{ add_form.quantity.label(class='form-label') }}
+                            {{ add_form.quantity(class='form-control', min=1, value=1) }}
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-outline-primary w-100" type="submit">Add</button>
+                        </div>
+                    </form>
+                    <form method="POST" action="{{ url_for('cancel_pending_sale', sale_id=sale.id) }}" class="mt-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-outline-danger" type="submit">Cancel Receipt</button>
+                    </form>
+                </div>
+                {% endif %}
                 <div class="receipt-actions d-flex justify-content-center gap-2 mt-4">
                     <form method="POST" action="{{ url_for('print_combined_receipt', receipt_token=sale.receipt_token) if combined else url_for('print_receipt', sale_id=sale.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

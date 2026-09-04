@@ -2,13 +2,13 @@
 {% block title %}Pending Receipts{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <div><h2 class="mb-1">Pending Receipts</h2><p class="text-muted mb-0">Retry printing or cancel a receipt before it becomes a completed sale.</p></div>
+    <div><h2 class="mb-1">Pending Receipts</h2><p class="text-muted mb-0">Review pending, failed, and cancelled receipts.</p></div>
     <a class="btn btn-outline-dark" href="{{ url_for('home') }}">Back to POS</a>
 </div>
 <div class="card shadow-sm border-0 rounded-4"><div class="card-body">
 {% if groups %}
 <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Receipt</th><th>Product</th><th>Quantity</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-{% for group in groups %}{% set sale = group.sales[0] %}<tr><td>#{{ sale.id }}</td><td>{% for item in group.sales %}{{ item.product_name }}{% if not loop.last %}, {% endif %}{% endfor %}</td><td>{% for item in group.sales %}{{ item.quantity }}{% if not loop.last %}, {% endif %}{% endfor %}</td><td>KES {{ '%.2f'|format(group.total) }}</td><td>{{ sale.status|capitalize }}</td><td class="d-flex gap-2"><a class="btn btn-sm btn-primary" href="{{ url_for('combined_receipt', receipt_token=group.token) if group.token else url_for('receipt', sale_id=sale.id) }}">View / Retry</a><form method="POST" action="{{ url_for('cancel_pending_sale', sale_id=sale.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Cancel</button></form></td></tr>{% endfor %}
+{% for group in groups %}{% set sale = group.sales[0] %}<tr><td>#{{ sale.id }}</td><td>{% for item in group.sales %}{{ item.product_name }}{% if not loop.last %}, {% endif %}{% endfor %}</td><td>{% for item in group.sales %}{{ item.quantity }}{% if not loop.last %}, {% endif %}{% endfor %}</td><td>KES {{ '%.2f'|format(group.total) }}</td><td><span class="badge {% if sale.status == 'cancelled' %}text-bg-secondary{% else %}text-bg-warning{% endif %}">{{ sale.status|capitalize }}</span></td><td class="d-flex gap-2">{% if sale.status == 'cancelled' %}<span class="text-muted">Sale cancelled</span>{% else %}<a class="btn btn-sm btn-primary" href="{{ url_for('combined_receipt', receipt_token=group.token) if group.token else url_for('receipt', sale_id=sale.id) }}">View / Retry</a><form method="POST" action="{{ url_for('cancel_pending_sale', sale_id=sale.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Cancel</button></form>{% endif %}</td></tr>{% endfor %}
 </tbody></table></div>
 {% else %}<p class="text-muted mb-0">There are no pending receipts.</p>{% endif %}
 </div></div>
