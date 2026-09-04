@@ -955,6 +955,8 @@ def add_product():
         db.session.add(product)
         db.session.commit()
         flash("Product added successfully.", "success")
+        if product.price < product.buying_price:
+            flash(f"Warning: selling price KES {product.price:.2f} is below buying price KES {product.buying_price:.2f}. This product will make a loss.", "warning")
         return redirect(url_for("home"))
     return render_template("add_product.html", form=form)
 
@@ -983,6 +985,8 @@ def edit_product(product_id):
         product.stock = int(form.stock.data)
         db.session.commit()
         flash("Product updated successfully.", "success")
+        if product.price < product.buying_price:
+            flash(f"Warning: selling price KES {product.price:.2f} is below buying price KES {product.buying_price:.2f}. This product will make a loss.", "warning")
         return redirect(url_for("home"))
     return render_template("edit_product.html", form=form, product=product)
 
@@ -1294,6 +1298,7 @@ def import_csv():
         imported = 0
         updated = 0
         skipped = 0
+        low_price_count = 0
 
         for row in rows:
             if not row:
@@ -1327,6 +1332,8 @@ def import_csv():
             if product:
                 product.buying_price = buying_price if buying_price else product.buying_price
                 product.price = price
+                if price < product.buying_price:
+                    low_price_count += 1
                 product.stock += qty
                 if sku_value and not product.sku:
                     product.sku = sku_value
@@ -1342,6 +1349,8 @@ def import_csv():
                     min_stock_level=5,
                 )
                 db.session.add(new_product)
+                if price < buying_price:
+                    low_price_count += 1
                 imported += 1
 
         db.session.commit()
@@ -1349,6 +1358,8 @@ def import_csv():
             f"Import complete: {imported} imported, {updated} updated, {skipped} skipped.",
             "success",
         )
+        if low_price_count:
+            flash(f"Warning: {low_price_count} imported product(s) have a selling price below their buying price.", "warning")
         return redirect(url_for("home"))
 
     return render_template("import_csv.html")

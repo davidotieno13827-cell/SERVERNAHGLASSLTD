@@ -27,6 +27,8 @@ The dashboard shows the current value, initial baseline, change, and capture
 date/time for Total Stock, Inventory Value, Expected Profit, Sales Count, and
 Total Revenue. The **Progress Report** page keeps timestamped history and
 compares the current values with the first baseline captured by the POS.
+Product forms and CSV imports warn when a selling price is below its buying
+price because that sale would create a loss.
 
 ## Quick start
 

@@ -184,6 +184,27 @@ class BusinessFeatureTests(unittest.TestCase):
             self.assertGreaterEqual(MetricSnapshot.query.count(), 1)
             self.assertEqual(MetricSnapshot.query.filter_by(is_initial=True).count(), 1)
 
+    def test_low_selling_price_shows_warning(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        response = client.post(
+            "/add",
+            data={
+                "sku": "LOSS-001",
+                "name": "Loss Check Product",
+                "brand": "ClearView",
+                "supplier_id": "1",
+                "buying_price": "500",
+                "price": "400",
+                "stock": "2",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"This product will make a loss", response.data)
+
     def test_failed_print_does_not_reduce_stock(self):
         client = app.test_client()
         with client.session_transaction() as session:
