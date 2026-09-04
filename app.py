@@ -306,6 +306,18 @@ class Sale(db.Model):
         return self.total_price - (self.cost_price * self.quantity)
 
 
+class MetricSnapshot(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    captured_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    label = db.Column(db.String(30), nullable=False, default="Daily")
+    is_initial = db.Column(db.Boolean, nullable=False, default=False)
+    total_stock = db.Column(db.Integer, nullable=False, default=0)
+    inventory_value = db.Column(db.Float, nullable=False, default=0.0)
+    expected_profit = db.Column(db.Float, nullable=False, default=0.0)
+    sales_count = db.Column(db.Integer, nullable=False, default=0)
+    total_revenue = db.Column(db.Float, nullable=False, default=0.0)
+
+
 class LoginForm(FlaskForm):
     username = StringField("Username", validators=[DataRequired(), Length(min=3, max=50)])
     password = PasswordField("Password", validators=[DataRequired()])
@@ -413,7 +425,7 @@ def get_dashboard_stats():
         db.func.coalesce(db.func.sum(Sale.cost_price * Sale.quantity), 0)
     ).filter(Sale.status == "printed").scalar() or 0
     gross_profit = total_revenue - total_cost
-    return {
+    current = {
         "total_products": total_products,
         "total_stock": total_stock,
         "inventory_value": inventory_value,
@@ -423,6 +435,38 @@ def get_dashboard_stats():
         "total_cost": total_cost,
         "gross_profit": gross_profit,
     }
+    initial = MetricSnapshot.query.filter_by(is_initial=True).order_by(MetricSnapshot.captured_at.asc()).first()
+    previous = MetricSnapshot.query.order_by(MetricSnapshot.captured_at.desc()).first()
+    current["initial"] = initial
+    current["previous"] = previous
+    current["captured_at"] = previous.captured_at if previous else datetime.utcnow()
+    current["changes"] = {
+        "total_stock": total_stock - (initial.total_stock if initial else total_stock),
+        "inventory_value": inventory_value - (initial.inventory_value if initial else inventory_value),
+        "expected_profit": expected_profit - (initial.expected_profit if initial else expected_profit),
+        "sales_count": sales_count - (initial.sales_count if initial else sales_count),
+        "total_revenue": total_revenue - (initial.total_revenue if initial else total_revenue),
+    }
+    return current
+
+
+def capture_metric_snapshot(label="Daily", force=False):
+    stats = get_dashboard_stats()
+    latest = MetricSnapshot.query.order_by(MetricSnapshot.captured_at.desc()).first()
+    if not force and latest and latest.captured_at.date() == datetime.utcnow().date():
+        return latest
+    snapshot = MetricSnapshot(
+        label=label,
+        is_initial=not MetricSnapshot.query.filter_by(is_initial=True).first(),
+        total_stock=stats["total_stock"],
+        inventory_value=stats["inventory_value"],
+        expected_profit=stats["expected_profit"],
+        sales_count=stats["sales_count"],
+        total_revenue=stats["total_revenue"],
+    )
+    db.session.add(snapshot)
+    db.session.commit()
+    return snapshot
 
 
 def ensure_product_schema():
@@ -536,6 +580,7 @@ def setup_default_admin():
         ensure_user_schema()
         create_default_admin()
         backup_database()
+        capture_metric_snapshot()
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -842,6 +887,7 @@ def finalize_printed_sales(sales):
         sale.status = "printed"
         sale.receipt_printed = True
     db.session.commit()
+    capture_metric_snapshot(label="Sale completed", force=True)
 
 
 def validate_printable_sales(sales):
@@ -1032,6 +1078,14 @@ def reports():
         db.func.sum((Product.price - Product.buying_price) * Product.stock).label("potential_profit")
     ).group_by(Product.name).order_by(db.func.sum((Product.price - Product.buying_price) * Product.stock).desc()).limit(5).all()
     return render_template("reports.html", stats=stats, recent_sales=recent_sales, top_profit_products=top_profit_products)
+
+
+@app.route("/progress")
+@login_required
+def progress_report():
+    snapshots = MetricSnapshot.query.order_by(MetricSnapshot.captured_at.desc()).limit(100).all()
+    initial = MetricSnapshot.query.filter_by(is_initial=True).order_by(MetricSnapshot.captured_at.asc()).first()
+    return render_template("progress.html", snapshots=snapshots, initial=initial)
 
 
 @app.route("/suppliers", methods=["GET", "POST"])

@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
-from app import User, app, db, Customer, Product, Sale, Supplier
+from app import User, app, db, Customer, MetricSnapshot, Product, Sale, Supplier
 
 
 class BusinessFeatureTests(unittest.TestCase):
@@ -170,6 +170,19 @@ class BusinessFeatureTests(unittest.TestCase):
             session["_fresh"] = True
         response = client.get("/add")
         self.assertEqual(response.status_code, 302)
+
+    def test_progress_report_has_baseline_and_history(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        response = client.get("/progress")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Initial Baseline", response.data)
+        self.assertIn(b"Snapshot History", response.data)
+        with app.app_context():
+            self.assertGreaterEqual(MetricSnapshot.query.count(), 1)
+            self.assertEqual(MetricSnapshot.query.filter_by(is_initial=True).count(), 1)
 
     def test_failed_print_does_not_reduce_stock(self):
         client = app.test_client()

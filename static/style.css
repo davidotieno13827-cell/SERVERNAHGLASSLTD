@@ -42,6 +42,13 @@ body {
     margin-top: 8px;
 }
 
+.stat-card small {
+    display: block;
+    font-size: 0.68rem;
+    margin-top: 4px;
+    opacity: 0.9;
+}
+
 .low-stock-item {
     background: #fff6e5;
     border: 1px solid #f4c96d;

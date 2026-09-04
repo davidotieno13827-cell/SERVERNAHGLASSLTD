@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Progress Report{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div><h2 class="mb-1">Progress Report</h2><p class="text-muted mb-0">Compare your starting position with current and previous totals.</p></div>
+    <a class="btn btn-outline-dark" href="{{ url_for('home') }}">Back to POS</a>
+</div>
+{% if initial %}
+<div class="card shadow-sm border-0 rounded-4 mb-4"><div class="card-body"><h4>Initial Baseline</h4><p class="text-muted">Captured {{ initial.captured_at|business_datetime }}</p><div class="table-responsive"><table class="table mb-0"><thead><tr><th>Metric</th><th>Initial</th><th>Current</th><th>Change</th></tr></thead><tbody>
+{% set current = snapshots[0] if snapshots else initial %}
+{% for label, initial_value, current_value in [('Total Stock', initial.total_stock, current.total_stock), ('Inventory Value', initial.inventory_value, current.inventory_value), ('Expected Profit', initial.expected_profit, current.expected_profit), ('Sales Count', initial.sales_count, current.sales_count), ('Total Revenue', initial.total_revenue, current.total_revenue)] %}
+<tr><td>{{ label }}</td><td>{% if label in ['Inventory Value', 'Expected Profit', 'Total Revenue'] %}KES {{ '%.2f'|format(initial_value) }}{% else %}{{ initial_value }}{% endif %}</td><td>{% if label in ['Inventory Value', 'Expected Profit', 'Total Revenue'] %}KES {{ '%.2f'|format(current_value) }}{% else %}{{ current_value }}{% endif %}</td><td class="{% if current_value - initial_value >= 0 %}text-success{% else %}text-danger{% endif %}">{% if label in ['Inventory Value', 'Expected Profit', 'Total Revenue'] %}KES {{ '%+.2f'|format(current_value - initial_value) }}{% else %}{{ '%+d'|format(current_value - initial_value) }}{% endif %}</td></tr>
+{% endfor %}
+</tbody></table></div></div></div>
+{% endif %}
+<div class="card shadow-sm border-0 rounded-4"><div class="card-body"><h4>Snapshot History</h4>{% if snapshots %}<div class="table-responsive"><table class="table table-striped align-middle"><thead><tr><th>Date and time</th><th>Label</th><th>TS</th><th>IV</th><th>EP</th><th>SC</th><th>TR</th></tr></thead><tbody>{% for snapshot in snapshots %}<tr><td>{{ snapshot.captured_at|business_datetime }}</td><td>{{ snapshot.label }}</td><td>{{ snapshot.total_stock }}</td><td>KES {{ '%.2f'|format(snapshot.inventory_value) }}</td><td>KES {{ '%.2f'|format(snapshot.expected_profit) }}</td><td>{{ snapshot.sales_count }}</td><td>KES {{ '%.2f'|format(snapshot.total_revenue) }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-muted mb-0">No snapshots recorded yet.</p>{% endif %}</div></div>
+{% endblock %}
