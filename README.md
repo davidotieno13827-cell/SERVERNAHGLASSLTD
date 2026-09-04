@@ -21,12 +21,13 @@ A lightweight Flask-based point-of-sale system for a glass and hardware retail s
 
 Stock is reduced only after the receipt is successfully sent to the printer. A pending or failed receipt does not reduce inventory.
 
-## Progress tracking
+## Product history
 
-The dashboard shows the current value, initial baseline, change, and capture
-date/time for Total Stock, Inventory Value, Expected Profit, Sales Count, and
-Total Revenue. The **Progress Report** page keeps timestamped history and
-compares the current values with the first baseline captured by the POS.
+Each new product addition and restock is recorded against the product with its
+date/time, quantity added, stock after the change, buying price, selling price,
+and operator. Open **History** beside a product in Inventory to review its
+records. Restocking also updates and records the current buying and selling
+prices.
 Product forms and CSV imports warn when a selling price is below its buying
 price because that sale would create a loss.
 

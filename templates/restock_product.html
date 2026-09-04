@@ -14,6 +14,15 @@
                         {{ form.quantity.label(class_='form-label') }}
                         {{ form.quantity(class_='form-control') }}
                     </div>
+                    <div class="mb-3">
+                        {{ form.buying_price.label(class_='form-label') }}
+                        {{ form.buying_price(class_='form-control', value='%.2f'|format(product.buying_price)) }}
+                    </div>
+                    <div class="mb-3">
+                        {{ form.price.label(class_='form-label') }}
+                        {{ form.price(class_='form-control', value='%.2f'|format(product.price)) }}
+                        <div id="priceWarning" class="alert alert-warning mt-2 mb-0 d-none" role="alert"></div>
+                    </div>
                     <div class="d-flex gap-2">
                         <button class="btn btn-warning" type="submit">Restock</button>
                         <a class="btn btn-outline-secondary" href="{{ url_for('home') }}">Cancel</a>
@@ -23,4 +32,22 @@
         </div>
     </div>
 </div>
+<script>
+    const buyingPrice = document.getElementById('buying_price');
+    const sellingPrice = document.getElementById('price');
+    const priceWarning = document.getElementById('priceWarning');
+    function checkPrice() {
+        const buying = Number.parseFloat(buyingPrice.value);
+        const selling = Number.parseFloat(sellingPrice.value);
+        if (Number.isFinite(buying) && Number.isFinite(selling) && selling < buying) {
+            priceWarning.textContent = `Warning: selling price is below buying price. This product will make a loss.`;
+            priceWarning.classList.remove('d-none');
+        } else {
+            priceWarning.classList.add('d-none');
+        }
+    }
+    buyingPrice.addEventListener('input', checkPrice);
+    sellingPrice.addEventListener('input', checkPrice);
+    checkPrice();
+</script>
 {% endblock %}

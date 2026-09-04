@@ -15,11 +15,11 @@
 
 <div class="row g-3 mb-4">
     <div class="col-md-2"><div class="stat-card"><span>Total Products</span><strong>{{ stats.total_products }}</strong></div></div>
-    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">TS</strong> Total Stock</span><strong>{{ stats.total_stock }}</strong><small>Initial: {{ stats.initial.total_stock }} | Change: {{ '%+d'|format(stats.changes.total_stock) }}</small><small>{{ stats.captured_at|business_datetime }}</small></div></div>
-    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">IV</strong> Inventory Value</span><strong>KES {{ '%.2f'|format(stats.inventory_value) }}</strong><small>Initial: KES {{ '%.2f'|format(stats.initial.inventory_value) }} | Change: KES {{ '%+.2f'|format(stats.changes.inventory_value) }}</small><small>{{ stats.captured_at|business_datetime }}</small></div></div>
-    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">EP</strong> Expected Profit</span><strong>KES {{ '%.2f'|format(stats.expected_profit) }}</strong><small>Initial: KES {{ '%.2f'|format(stats.initial.expected_profit) }} | Change: KES {{ '%+.2f'|format(stats.changes.expected_profit) }}</small><small>{{ stats.captured_at|business_datetime }}</small></div></div>
-    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">SC</strong> Sales Count</span><strong>{{ stats.sales_count }}</strong><small>Initial: {{ stats.initial.sales_count }} | Change: {{ '%+d'|format(stats.changes.sales_count) }}</small><small>{{ stats.captured_at|business_datetime }}</small></div></div>
-    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">TR</strong> Total Revenue</span><strong>KES {{ '%.2f'|format(stats.total_revenue) }}</strong><small>Initial: KES {{ '%.2f'|format(stats.initial.total_revenue) }} | Change: KES {{ '%+.2f'|format(stats.changes.total_revenue) }}</small><small>{{ stats.captured_at|business_datetime }}</small></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">TS</strong> Total Stock</span><strong>{{ stats.total_stock }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">IV</strong> Inventory Value</span><strong>KES {{ '%.2f'|format(stats.inventory_value) }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">EP</strong> Expected Profit</span><strong>KES {{ '%.2f'|format(stats.expected_profit) }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">SC</strong> Sales Count</span><strong>{{ stats.sales_count }}</strong></div></div>
+    <div class="col-md-2"><div class="stat-card"><span><strong class="stat-code">TR</strong> Total Revenue</span><strong>KES {{ '%.2f'|format(stats.total_revenue) }}</strong></div></div>
 </div>
 
 <div class="row g-4 mb-4">
@@ -145,6 +145,7 @@
                                 </form>
                                 <a class="btn btn-sm btn-outline-dark" href="{{ url_for('edit_product', product_id=product.id) }}">Edit</a>
                                 <a class="btn btn-sm btn-outline-warning" href="{{ url_for('restock_product', product_id=product.id) }}">Restock</a>
+                                <a class="btn btn-sm btn-outline-info" href="{{ url_for('product_history', product_id=product.id) }}">History</a>
                                 <form method="POST" action="{{ url_for('delete_product', product_id=product.id) }}" class="d-inline">
                                     {{ quick_sale_form.hidden_tag() }}
                                     <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Delete this product?')">Delete</button>

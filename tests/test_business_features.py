@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
-from app import User, app, db, Customer, MetricSnapshot, Product, Sale, Supplier
+from app import User, app, db, Customer, MetricSnapshot, Product, ProductActivity, Sale, Supplier
 
 
 class BusinessFeatureTests(unittest.TestCase):
@@ -204,6 +204,43 @@ class BusinessFeatureTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"This product will make a loss", response.data)
+
+    def test_product_addition_and_restock_are_recorded(self):
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = "1"
+            session["_fresh"] = True
+        response = client.post(
+            "/add",
+            data={
+                "sku": "HIST-001",
+                "name": "History Product",
+                "brand": "ClearView",
+                "supplier_id": "1",
+                "buying_price": "100",
+                "price": "150",
+                "stock": "5",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            product = Product.query.filter_by(sku="HIST-001").first()
+            self.assertEqual(ProductActivity.query.filter_by(product_id=product.id).count(), 1)
+            product_id = product.id
+        response = client.post(
+            f"/restock/{product_id}",
+            data={"quantity": "3", "buying_price": "120", "price": "180"},
+        )
+        self.assertEqual(response.status_code, 302)
+        with app.app_context():
+            product = db.session.get(Product, product_id)
+            activities = ProductActivity.query.filter_by(product_id=product_id).order_by(ProductActivity.id.asc()).all()
+            self.assertEqual(product.stock, 8)
+            self.assertEqual(product.buying_price, 120.0)
+            self.assertEqual(product.price, 180.0)
+            self.assertEqual(len(activities), 2)
+            self.assertEqual(activities[1].activity_type, "restock")
+            self.assertEqual(activities[1].quantity_added, 3)
 
     def test_duplicate_cart_checkout_does_not_create_duplicate_sales(self):
         client = app.test_client()

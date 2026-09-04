@@ -279,6 +279,19 @@ class Product(db.Model):
     min_stock_level = db.Column(db.Integer, nullable=False, default=5)
     supplier_id = db.Column(db.Integer, db.ForeignKey("supplier.id"), nullable=True)
     sales = db.relationship("Sale", backref="product", lazy=True, cascade="all, delete-orphan")
+    activity_records = db.relationship("ProductActivity", backref="product", lazy=True, cascade="all, delete-orphan")
+
+
+class ProductActivity(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id"), nullable=False, index=True)
+    activity_type = db.Column(db.String(20), nullable=False)
+    quantity_added = db.Column(db.Integer, nullable=False, default=0)
+    stock_after = db.Column(db.Integer, nullable=False)
+    buying_price = db.Column(db.Float, nullable=False)
+    selling_price = db.Column(db.Float, nullable=False)
+    recorded_by = db.Column(db.String(50), nullable=True)
+    recorded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
 class Sale(db.Model):
@@ -349,6 +362,8 @@ class ProductForm(FlaskForm):
 
 class RestockForm(FlaskForm):
     quantity = IntegerField("Quantity to Add", validators=[DataRequired(), NumberRange(min=1)])
+    buying_price = DecimalField("Buying Price", validators=[DataRequired()])
+    price = DecimalField("Selling Price", validators=[DataRequired()])
     submit = SubmitField("Restock")
 
 
@@ -554,7 +569,12 @@ def backup_database():
     backup_path = os.path.join(backup_dir, "app-{}.db".format(datetime.now().strftime("%Y%m%d-%H%M%S")))
     if not os.path.exists(backup_path):
         shutil.copy2(database_path, backup_path)
-    backups = sorted((os.path.join(backup_dir, name) for name in os.listdir(backup_dir) if name.endswith(".db")), key=os.path.getmtime)
+    backups = [
+        os.path.join(backup_dir, name)
+        for name in os.listdir(backup_dir)
+        if name.endswith(".db") and os.path.exists(os.path.join(backup_dir, name))
+    ]
+    backups.sort(key=os.path.getmtime)
     for old_backup in backups[:-30]:
         os.remove(old_backup)
 
@@ -582,6 +602,21 @@ def ensure_customer_schema():
             conn.execute(text("ALTER TABLE customer ADD COLUMN phone VARCHAR(30)"))
 
 
+def seed_product_history():
+    for product in Product.query.all():
+        if not ProductActivity.query.filter_by(product_id=product.id).first():
+            db.session.add(ProductActivity(
+                product_id=product.id,
+                activity_type="opening balance",
+                quantity_added=product.stock,
+                stock_after=product.stock,
+                buying_price=product.buying_price,
+                selling_price=product.price,
+                recorded_by="System",
+            ))
+    db.session.commit()
+
+
 @app.before_request
 def setup_default_admin():
     with app.app_context():
@@ -590,6 +625,7 @@ def setup_default_admin():
         ensure_sale_schema()
         ensure_supplier_schema()
         ensure_customer_schema()
+        seed_product_history()
         ensure_user_schema()
         create_default_admin()
         backup_database()
@@ -982,6 +1018,16 @@ def add_product():
         )
         db.session.add(product)
         db.session.commit()
+        db.session.add(ProductActivity(
+            product_id=product.id,
+            activity_type="addition",
+            quantity_added=product.stock,
+            stock_after=product.stock,
+            buying_price=product.buying_price,
+            selling_price=product.price,
+            recorded_by=current_user.username,
+        ))
+        db.session.commit()
         flash("Product added successfully.", "success")
         if product.price < product.buying_price:
             flash(f"Warning: selling price KES {product.price:.2f} is below buying price KES {product.buying_price:.2f}. This product will make a loss.", "warning")
@@ -1023,11 +1069,25 @@ def edit_product(product_id):
 @admin_required
 def restock_product(product_id):
     product = Product.query.get_or_404(product_id)
-    form = RestockForm()
+    form = RestockForm(obj=product)
     if form.validate_on_submit():
-        product.stock += int(form.quantity.data)
+        quantity = int(form.quantity.data)
+        product.buying_price = float(form.buying_price.data)
+        product.price = float(form.price.data)
+        product.stock += quantity
+        db.session.add(ProductActivity(
+            product_id=product.id,
+            activity_type="restock",
+            quantity_added=quantity,
+            stock_after=product.stock,
+            buying_price=product.buying_price,
+            selling_price=product.price,
+            recorded_by=current_user.username,
+        ))
         db.session.commit()
-        flash(f"Restocked {product.name} by {form.quantity.data} units.", "success")
+        flash(f"Restocked {product.name} by {quantity} units and recorded the updated prices.", "success")
+        if product.price < product.buying_price:
+            flash(f"Warning: selling price KES {product.price:.2f} is below buying price KES {product.buying_price:.2f}. This product will make a loss.", "warning")
         return redirect(url_for("home"))
     return render_template("restock_product.html", form=form, product=product)
 
@@ -1040,6 +1100,14 @@ def delete_product(product_id):
     db.session.commit()
     flash(f"{product.name} was deleted successfully.", "success")
     return redirect(url_for("home"))
+
+
+@app.route("/product/<int:product_id>/history")
+@admin_required
+def product_history(product_id):
+    product = Product.query.get_or_404(product_id)
+    activities = ProductActivity.query.filter_by(product_id=product.id).order_by(ProductActivity.recorded_at.desc()).all()
+    return render_template("product_history.html", product=product, activities=activities)
 
 
 @app.route("/history")
